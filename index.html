@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 图片生成器</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --panel-2:#f0f2f5; --line:#dfe3e8;
+    --text:#1a1d21; --muted:#6b7280; --accent:#3b6ef6; --accent-fg:#fff;
+    --danger:#c0392b; --danger-bg:#fdeaea; --ok:#1e7f4f;
+    --radius:10px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#15171a; --panel:#1e2126; --panel-2:#25292f; --line:#31363d;
+      --text:#e8eaed; --muted:#9aa2ad; --accent:#4d7dfb; --accent-fg:#fff;
+      --danger:#ff6b6b; --danger-bg:#3a2224; --ok:#4ade80;
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--text); min-height:100vh;
+    font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:20px 16px 60px}
+  header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+  h1{font-size:19px;margin:0;font-weight:650;letter-spacing:.2px}
+  header .sub{color:var(--muted);font-size:12px}
+  .layout{display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start}
+  @media (max-width:900px){ .layout{grid-template-columns:1fr} }
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+  .card + .card{margin-top:12px}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin:0 0 10px;font-weight:600}
+  label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px}
+  label:first-of-type{margin-top:0}
+  input,select,textarea{
+    width:100%;background:var(--panel-2);color:var(--text);
+    border:1px solid var(--line);border-radius:7px;padding:8px 10px;
+    font:inherit;outline:none;
+  }
+  input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+  textarea{resize:vertical;min-height:110px;line-height:1.55}
+  .row{display:flex;gap:8px}
+  .row > *{flex:1;min-width:0}
+  .inline{display:flex;gap:6px;align-items:center}
+  .inline input{flex:1}
+  button{
+    background:var(--panel-2);color:var(--text);border:1px solid var(--line);
+    border-radius:7px;padding:8px 12px;font:inherit;cursor:pointer;white-space:nowrap;
+  }
+  button:hover:not(:disabled){border-color:var(--accent)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+  button.primary:hover:not(:disabled){filter:brightness(1.08)}
+  button.mini{padding:5px 9px;font-size:12px}
+  .hint{font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.5}
+  .hint code{background:var(--panel-2);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+  .gen-bar{display:flex;gap:8px;align-items:center;margin-top:12px}
+  .gen-bar .primary{flex:1}
+  .status{margin-top:12px;font-size:13px;min-height:20px}
+  .status.err{background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger);
+    border-radius:7px;padding:10px 12px;white-space:pre-wrap;word-break:break-word}
+  .status.ok{color:var(--ok)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-top:14px}
+  .shot{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column}
+  .shot img{width:100%;display:block;background:var(--panel-2);cursor:zoom-in;aspect-ratio:1/1;object-fit:contain}
+  .shot .meta{padding:9px 10px;font-size:11.5px;color:var(--muted);
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .shot .acts{display:flex;gap:6px;padding:0 10px 10px}
+  .shot .acts button{flex:1;font-size:12px;padding:5px 6px}
+  .empty{border:1px dashed var(--line);border-radius:var(--radius);padding:48px 20px;
+    text-align:center;color:var(--muted);font-size:13px}
+  .spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);
+    border-radius:50%;animation:sp .7s linear infinite;display:inline-block;vertical-align:-2px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  #lightbox{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;
+    align-items:center;justify-content:center;z-index:50;padding:24px;cursor:zoom-out}
+  #lightbox img{max-width:100%;max-height:100%;object-fit:contain;border-radius:6px}
+  .tag{display:inline-block;background:var(--panel-2);border:1px solid var(--line);
+    border-radius:20px;padding:1px 8px;font-size:11px;color:var(--muted);margin:2px 4px 2px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>AI 图片生成器</h1>
+    <span class="sub">OpenAI 兼容接口 · 单文件本地运行</span>
+  </header>
+
+  <div class="layout">
+    <div>
+      <div class="card">
+        <h2>接口配置</h2>
+
+        <label>Base URL</label>
+        <input id="baseUrl" placeholder="https://img.the5288.com" spellcheck="false">
+        <div class="hint" id="baseHint"></div>
+
+        <label>API Key</label>
+        <div class="inline">
+          <input id="apiKey" type="password" placeholder="sk-..." spellcheck="false" autocomplete="off">
+          <button class="mini" id="toggleKey" title="显示 / 隐藏">👁</button>
+        </div>
+
+        <label>模型</label>
+        <div class="inline">
+          <input id="model" list="modelList" placeholder="gpt-image-2" spellcheck="false">
+          <button class="mini" id="fetchModels" title="从服务端拉取可用模型列表">拉取</button>
+        </div>
+        <datalist id="modelList">
+          <option value="gpt-image-2"></option>
+          <option value="gpt-image-2-mini"></option>
+          <option value="gpt-image-1"></option>
+          <option value="gpt-image-1-mini"></option>
+          <option value="dall-e-3"></option>
+          <option value="dall-e-2"></option>
+        </datalist>
+        <div class="hint">不确定模型名就点「拉取」，会请求 <code>/v1/models</code> 把服务端支持的模型填进下拉候选。</div>
+      </div>
+
+      <div class="card">
+        <h2>生成参数</h2>
+        <div class="row">
+          <div>
+            <label>尺寸</label>
+            <select id="size">
+              <option value="auto">自动（不传）</option>
+              <option value="1024x1024" selected>1024×1024 方形</option>
+              <option value="1536x1024">1536×1024 横版</option>
+              <option value="1024x1536">1024×1536 竖版</option>
+              <option value="1792x1024">1792×1024 横版 (dall-e-3)</option>
+              <option value="1024x1792">1024×1792 竖版 (dall-e-3)</option>
+              <option value="512x512">512×512</option>
+            </select>
+          </div>
+          <div>
+            <label>数量</label>
+            <select id="count">
+              <option>1</option><option>2</option><option>3</option><option>4</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>质量</label>
+            <select id="quality">
+              <option value="auto" selected>自动（不传）</option>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="standard">standard (dall-e-3)</option>
+              <option value="hd">hd (dall-e-3)</option>
+            </select>
+          </div>
+          <div>
+            <label>背景</label>
+            <select id="background">
+              <option value="" selected>默认（不传）</option>
+              <option value="transparent">透明</option>
+              <option value="opaque">不透明</option>
+            </select>
+          </div>
+        </div>
+        <div class="hint">「不传」= 不发送该字段，由服务端默认值决定。遇到「参数不支持」类报错时优先切回它。</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>提示词</h2>
+        <textarea id="prompt" placeholder="描述你想要的画面，越具体越好。例如：&#10;一只戴着飞行员护目镜的橘猫，站在黄昏的木质飞机机翼上，电影感光线，35mm 胶片质感"></textarea>
+        <div class="gen-bar">
+          <button class="primary" id="go">生成图片</button>
+          <button id="stop" disabled>取消</button>
+          <button id="clear">清空结果</button>
+        </div>
+        <div class="hint">快捷键：Ctrl / ⌘ + Enter 生成</div>
+        <div class="status" id="status"></div>
+      </div>
+
+      <div id="results"><div class="empty">生成的图片会显示在这里</div></div>
+    </div>
+  </div>
+</div>
+
+<div id="lightbox"><img alt=""></div>
+
+<script>
+(function(){
+  "use strict";
+  var $ = function(id){ return document.getElementById(id); };
+  var STORE = "img-gen-config-v1";
+  var els = {
+    baseUrl:$("baseUrl"), apiKey:$("apiKey"), model:$("model"), size:$("size"),
+    count:$("count"), quality:$("quality"), background:$("background")
+  };
+  var promptEl = $("prompt"), statusEl = $("status"), resultsEl = $("results");
+
+  /* ---------- 运行方式判定 ----------
+     img.the5288.com 的 OPTIONS 预检返回 403 且不下发 CORS 响应头，
+     所以 file:// 直接打开必然被浏览器拦截。经 proxy.py 打开时页面与 API 同源，无此问题。 */
+  var VIA_PROXY = /^https?:$/.test(location.protocol);
+
+  /* ---------- 配置持久化：localStorage，只存在本机浏览器，不进 git ---------- */
+  var DEFAULTS = { baseUrl: VIA_PROXY ? location.origin : "https://img.the5288.com",
+                   apiKey:"", model:"gpt-image-2",
+                   size:"1024x1024", count:"1", quality:"auto", background:"" };
+
+  $("baseHint").innerHTML = VIA_PROXY
+    ? '已通过本地代理运行（<code>' + esc(location.origin) + '</code>），请求与页面同源，不会被 CORS 拦截。'
+    : '⚠ 这样打开用不了 —— 请回到本文件夹双击 <code>启动.bat</code>。'
+      + '直接双击 index.html 会被浏览器的 CORS 策略拦截，任何请求都发不出去。';
+
+  function loadCfg(){
+    var cfg = {};
+    try { cfg = JSON.parse(localStorage.getItem(STORE) || "{}") || {}; } catch(e){ cfg = {}; }
+    Object.keys(DEFAULTS).forEach(function(k){
+      var v = cfg[k];
+      els[k].value = (v === undefined || v === null || v === "") ? DEFAULTS[k] : v;
+    });
+  }
+  function saveCfg(){
+    var cfg = {};
+    Object.keys(DEFAULTS).forEach(function(k){ cfg[k] = els[k].value; });
+    try { localStorage.setItem(STORE, JSON.stringify(cfg)); } catch(e){}
+  }
+  Object.keys(DEFAULTS).forEach(function(k){
+    els[k].addEventListener("change", saveCfg);
+    els[k].addEventListener("input", saveCfg);
+  });
+  loadCfg();
+
+  /* ---------- 工具 ---------- */
+  function endpoint(path){
+    var b = (els.baseUrl.value || "").trim().replace(/\/+$/, "");
+    if(!b) throw new Error("请先填写 Base URL");
+    if(!/^https?:\/\//i.test(b)) b = "https://" + b;
+    if(!/\/v\d+$/.test(b)) b += "/v1";
+    return b + path;
+  }
+  function setStatus(msg, kind){
+    statusEl.className = "status" + (kind ? " " + kind : "");
+    statusEl.innerHTML = msg;
+  }
+  function stamp(){
+    var d = new Date(), p = function(n){ return String(n).padStart(2, "0"); };
+    return "" + d.getFullYear() + p(d.getMonth()+1) + p(d.getDate()) + "-" +
+           p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+  }
+  function esc(s){
+    return String(s).replace(/[&<>]/g, function(c){
+      return c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;";
+    });
+  }
+  // 兼容两种错误体：OpenAI 的 {error:{message}} 和本中转站的 {code,message}
+  function errText(j, raw){
+    if(j){
+      if(j.error && (j.error.message || j.error.type)) return j.error.message || j.error.type;
+      if(j.message) return (j.code ? j.code + "：" : "") + j.message;
+    }
+    return (raw || "").slice(0, 600) || "(无响应体)";
+  }
+
+  function explain(err){
+    if(err && err.name === "AbortError") return "已取消。";
+    var m = (err && err.message) || String(err);
+    if(/Failed to fetch|NetworkError|Load failed/i.test(m)){
+      if(!VIA_PROXY){
+        return "你是直接双击 index.html 打开的，这样用不了。\n\n" +
+               "→ 请回到本文件夹，改为双击「启动.bat」（或 start.bat）。\n" +
+               "   它会自动开好本地服务并打开正确的页面，之后一切照常。\n\n" +
+               "原因：img.the5288.com 不下发跨域响应头，file:// 页面直连必被浏览器拦截；\n" +
+               "由启动器打开时页面与接口同源，就没有这个限制了。\n\n" +
+               "（原始错误：" + m + "）";
+      }
+      return "请求发不出去。按可能性排序：\n" +
+             "1) proxy.py 已经停了 —— 重新运行它。\n" +
+             "2) Base URL 填错，或目标服务不可达。\n" +
+             "3) 本机网络 / 代理软件拦截。\n\n原始错误：" + m;
+    }
+    return m;
+  }
+
+  /* ---------- 模型列表：手动拉取 + 失败时自动诊断共用 ---------- */
+  var IMAGE_MODEL_RE = /image|dall|flux|sd|midjourney|seedream|kolors|imagen/i;
+
+  function loadModels(){
+    return fetch(endpoint("/models"), {
+      headers: { "Authorization": "Bearer " + els.apiKey.value.trim() }
+    })
+    .then(function(r){
+      return r.text().then(function(t){
+        var j = null; try { j = JSON.parse(t); } catch(e){}
+        if(!r.ok) throw new Error("HTTP " + r.status + "：" + errText(j, t));
+        if(!j) throw new Error("响应不是合法 JSON：" + t.slice(0, 300));
+        return j;
+      });
+    })
+    .then(function(j){
+      var ids = ((j && j.data) || []).map(function(m){ return m && m.id; })
+                  .filter(Boolean).sort();
+      if(!ids.length) throw new Error("返回的模型列表为空");
+      var dl = $("modelList");
+      dl.innerHTML = "";
+      ids.forEach(function(id){
+        var o = document.createElement("option"); o.value = id; dl.appendChild(o);
+      });
+      return { ids: ids, pics: ids.filter(function(i){ return IMAGE_MODEL_RE.test(i); }) };
+    });
+  }
+
+  $("fetchModels").addEventListener("click", function(){
+    var btn = this;
+    btn.disabled = true; btn.textContent = "…";
+    setStatus('<span class="spin"></span> 正在拉取模型列表…');
+    Promise.resolve().then(loadModels)
+      .then(function(r){
+        setStatus("已拉取 " + r.ids.length + " 个模型。" +
+          (r.pics.length
+            ? "疑似图像模型：" + r.pics.map(function(p){
+                return '<span class="tag">' + esc(p) + "</span>"; }).join("")
+            : "未识别出图像类模型，请手动确认模型名。"), "ok");
+      })
+      .catch(function(e){ setStatus(esc(explain(e)), "err"); })
+      .then(function(){ btn.disabled = false; btn.textContent = "拉取"; });
+  });
+
+  /* 生成失败时自动核对模型名 —— 大部分 4xx/5xx 其实是模型名不对或无权限 */
+  function diagnose(model, onHint){
+    loadModels().then(function(r){
+      var listed = r.ids.indexOf(model) >= 0;
+      var avail = r.pics.length
+        ? "服务端的图像类模型有：" + r.pics.join("、")
+        : "服务端的模型列表里没有识别出图像类模型。";
+      onHint(listed
+        ? "\n\n【自动诊断】模型「" + model + "」确实在服务端列表里，所以问题不在模型名。" +
+          "更可能是你的 Key 对该模型没有权限，或中转站到上游的通道故障 —— 这种要找中转站管理员。\n" + avail
+        : "\n\n【自动诊断】服务端的模型列表里没有「" + model + "」，这多半就是失败原因。\n" +
+          avail + "\n把模型改成其中之一再试。");
+    }).catch(function(){ /* 诊断失败就算了，别盖掉原始错误 */ });
+  }
+
+  /* ---------- 结果渲染 ---------- */
+  function render(item){
+    var grid = resultsEl.querySelector(".grid");
+    if(!grid){
+      resultsEl.innerHTML = '<div class="grid"></div>';
+      grid = resultsEl.querySelector(".grid");
+    }
+    var card = document.createElement("div");
+    card.className = "shot";
+
+    var img = document.createElement("img");
+    img.src = item.src;
+    img.alt = item.prompt;
+    img.addEventListener("click", function(){
+      var lb = $("lightbox");
+      lb.querySelector("img").src = item.src;
+      lb.style.display = "flex";
+    });
+
+    var meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = item.model + " · " + (item.size === "auto" ? "auto" : item.size) + " · " + item.prompt;
+
+    var acts = document.createElement("div");
+    acts.className = "acts";
+
+    var dl = document.createElement("button");
+    dl.textContent = "下载";
+    dl.addEventListener("click", function(){
+      var a = document.createElement("a");
+      a.href = item.src;
+      a.download = "img-" + stamp() + "-" + item.idx + "." + item.ext;
+      // 跨域 http(s) 图片链接无法被 download 属性直接保存，退化为新标签打开后手动另存
+      if(/^https?:/i.test(item.src)){ a.target = "_blank"; a.rel = "noopener"; }
+      document.body.appendChild(a); a.click(); a.remove();
+    });
+
+    var cp = document.createElement("button");
+    cp.textContent = "复制提示词";
+    cp.addEventListener("click", function(){
+      navigator.clipboard.writeText(item.prompt).then(function(){
+        cp.textContent = "已复制";
+        setTimeout(function(){ cp.textContent = "复制提示词"; }, 1200);
+      }).catch(function(){ cp.textContent = "复制失败"; });
+    });
+
+    acts.appendChild(dl); acts.appendChild(cp);
+    card.appendChild(img); card.appendChild(meta); card.appendChild(acts);
+    grid.insertBefore(card, grid.firstChild);
+  }
+
+  /* ---------- 生成 ---------- */
+  var controller = null;
+
+  function generate(){
+    if(controller) return;
+    var prompt = promptEl.value.trim();
+    if(!prompt){ setStatus("请先输入提示词。", "err"); promptEl.focus(); return; }
+    if(!els.apiKey.value.trim()){ setStatus("请先填写 API Key。", "err"); els.apiKey.focus(); return; }
+
+    var url;
+    try { url = endpoint("/images/generations"); }
+    catch(e){ setStatus(explain(e), "err"); return; }
+
+    var model = (els.model.value || "gpt-image-2").trim();
+    var size = els.size.value;
+    var body = { model: model, prompt: prompt, n: parseInt(els.count.value, 10) || 1 };
+    if(size !== "auto") body.size = size;
+    if(els.quality.value !== "auto") body.quality = els.quality.value;
+    if(els.background.value) body.background = els.background.value;
+
+    controller = new AbortController();
+    $("go").disabled = true;
+    $("stop").disabled = false;
+    var t0 = Date.now();
+    var timer = setInterval(function(){
+      setStatus('<span class="spin"></span> 生成中… ' + ((Date.now() - t0) / 1000).toFixed(1) + "s");
+    }, 100);
+
+    fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + els.apiKey.value.trim()
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    })
+    .then(function(r){
+      return r.text().then(function(t){
+        var j = null; try { j = JSON.parse(t); } catch(e){}
+        if(!r.ok) throw new Error("HTTP " + r.status + "：" + errText(j, t));
+        if(!j) throw new Error("响应不是合法 JSON：" + t.slice(0, 300));
+        return j;
+      });
+    })
+    .then(function(j){
+      var data = j.data || [];
+      if(!data.length){
+        throw new Error("接口返回成功，但没有图片数据：" + JSON.stringify(j).slice(0, 400));
+      }
+      var shown = 0;
+      data.forEach(function(d, i){
+        var src, ext = j.output_format || "png";
+        if(d.b64_json){
+          src = "data:image/" + ext + ";base64," + d.b64_json;
+        } else if(d.url){
+          src = d.url;
+          ext = (d.url.split("?")[0].split(".").pop() || "png").slice(0, 4);
+        } else {
+          return;
+        }
+        shown++;
+        render({
+          src: src, prompt: d.revised_prompt || prompt,
+          model: model, size: size, idx: i + 1, ext: ext
+        });
+      });
+      var secs = ((Date.now() - t0) / 1000).toFixed(1);
+      if(!shown) throw new Error("返回结构里没有 b64_json / url 字段：" + JSON.stringify(j).slice(0, 400));
+      setStatus("完成，返回 " + shown + " 张图，用时 " + secs + "s。", "ok");
+    })
+    .catch(function(e){
+      var base = explain(e);
+      setStatus(esc(base), "err");
+      // 服务端明确回了 HTTP 错误码 —— 顺手核对一下模型名，多数情况问题就在这
+      if(/^HTTP \d/.test((e && e.message) || "")){
+        diagnose(model, function(hint){ setStatus(esc(base + hint), "err"); });
+      }
+    })
+    .then(function(){
+      clearInterval(timer);
+      $("go").disabled = false;
+      $("stop").disabled = true;
+      controller = null;
+    });
+  }
+
+  $("go").addEventListener("click", generate);
+  $("stop").addEventListener("click", function(){ if(controller) controller.abort(); });
+  $("clear").addEventListener("click", function(){
+    resultsEl.innerHTML = '<div class="empty">生成的图片会显示在这里</div>';
+    setStatus("");
+  });
+  $("toggleKey").addEventListener("click", function(){
+    els.apiKey.type = els.apiKey.type === "password" ? "text" : "password";
+  });
+  document.addEventListener("keydown", function(e){
+    if((e.ctrlKey || e.metaKey) && e.key === "Enter"){ e.preventDefault(); generate(); }
+    if(e.key === "Escape"){ $("lightbox").style.display = "none"; }
+  });
+  $("lightbox").addEventListener("click", function(){ this.style.display = "none"; });
+})();
+</script>
+</body>
+</html>

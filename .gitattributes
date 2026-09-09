@@ -1,0 +1,6 @@
+# 跨平台工具：换行符必须固定，否则 start.sh 在 macOS/Linux 上会因 CRLF 导致 shebang 失效
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+*.jpg binary
+*.webp binary
