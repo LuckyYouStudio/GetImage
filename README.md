@@ -20,11 +20,14 @@ GetImage/
 └─ start.sh     macOS / Linux 本地运行
 ```
 
-## 部署（正式用法）
+## 部署 / 接入中转站
 
-把 `index.html` 放到 `img.the5288.com` 下任意路径，例如 `https://img.the5288.com/studio/`。页面与接口同源，没有跨域问题，不需要任何服务端改动。
+两条路，按你有的权限选，详见 **[DEPLOY.md](DEPLOY.md)**：
 
-具体步骤和 Caddy / Nginx 配置见 **[DEPLOY.md](DEPLOY.md)**。品牌名、产品名、领 Key 的链接都在 `index.html` 开头的 `BRAND` 对象里改。
+- **只有 Sub2API 面板后台**：`dist/worker.js` 粘进 Cloudflare Worker（免费、纯网页操作），再在面板「自定义菜单页面」里加一条指向它。面板会以 iframe 嵌入并带上用户登录 token，工具据此**自动填入用户自己的 API Key**，打开即用。
+- **有服务器权限**：`index.html` 放到 `img.the5288.com` 任意路径，同源直连，零配置。
+
+品牌名、产品名、链接都在 `index.html` 开头的 `BRAND` 对象里改；改完跑 `python deploy/build_worker.py` 重新生成 Worker。
 
 ## 本地运行（预览 / 个人使用）
 

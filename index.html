@@ -236,6 +236,10 @@
 
   footer{max-width:1240px;margin:0 auto;padding:0 20px 30px;color:var(--muted);font-size:12px;display:flex;gap:14px;flex-wrap:wrap}
   footer .sp{margin-left:auto}
+  /* 嵌在面板 iframe 里：去掉页脚、收紧上边距，外层面板已经有自己的框 */
+  html.embedded footer{display:none}
+  html.embedded .wrap{padding-top:14px;padding-bottom:40px}
+  html.embedded .composer{top:60px}
   .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:9px 16px;border-radius:9px;font-size:13px;z-index:60;box-shadow:0 8px 24px rgba(0,0,0,.25);animation:pop .2s}
 </style>
 </head>
@@ -508,6 +512,24 @@ const IS_HTTP = /^https?:$/.test(location.protocol);
 const IS_LOCALHOST = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
 const MODE = !IS_HTTP ? "file" : (IS_LOCALHOST ? "local" : "hosted");
 
+/* 面板嵌入模式
+   Sub2API 的「自定义菜单页面」会用 iframe 打开本页，并在地址上附带
+   ?ui_mode=embedded&theme=light|dark&lang=..&user_id=..&token=<面板登录 JWT>&src_host=..
+   token 只在内存里用一次（向 /api/v1/keys 换取用户自己的 API Key），随后立即从地址栏抹掉，
+   绝不写入 localStorage。 */
+const EMBED = (() => {
+  const q = new URLSearchParams(location.search);
+  const e = {
+    on: q.get("ui_mode") === "embedded",
+    theme: q.get("theme"), token: q.get("token") || "", userId: q.get("user_id") || "",
+  };
+  if (q.has("token") || q.has("user_id") || q.has("src_url")) {
+    ["token", "user_id", "src_url", "src_host"].forEach(k => q.delete(k));
+    try { history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash); } catch (_) {}
+  }
+  return e;
+})();
+
 /* =====================================================================
    设置（localStorage）
    ===================================================================== */
@@ -553,7 +575,8 @@ function bindSetting(id, key, evt = "change") {
    主题
    ===================================================================== */
 function applyTheme() {
-  const t = settings.theme;
+  // 嵌在面板里时跟随面板主题，避免 iframe 内外一明一暗
+  const t = (EMBED.on && (EMBED.theme === "dark" || EMBED.theme === "light")) ? EMBED.theme : settings.theme;
   if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
   else document.documentElement.removeAttribute("data-theme");
 }
@@ -1070,9 +1093,33 @@ $("wipeAll").addEventListener("click", async () => {
 });
 
 /* =====================================================================
+   面板嵌入：用登录 token 自动取用户自己的 API Key
+   /api/v1/keys 由托管层（Cloudflare Worker / proxy.py --panel）转发到面板主机；
+   没配置时是 404，静默回退到手动填写。返回结构按 Sub2API 的分页格式解析，字段 key / name / status。
+   ===================================================================== */
+async function autofillKeyFromPanel() {
+  if (!EMBED.token) return false;
+  try {
+    const r = await fetch("/api/v1/keys?page=1&page_size=100", { headers: { "Authorization": "Bearer " + EMBED.token } });
+    if (!r.ok) return false;
+    const j = await r.json();
+    const list = (j && (j.items || (j.data && (j.data.items || j.data)) || j.list)) || [];
+    if (!Array.isArray(list)) return false;
+    const pick = list.find(k => k && k.key && k.status === "active") || list.find(k => k && k.key);
+    if (!pick) return false;
+    if (pick.key !== settings.apiKey) {
+      settings.apiKey = pick.key; $("apiKey").value = pick.key; saveSettings();
+      toast("已自动使用你的 API Key" + (pick.name ? "「" + pick.name + "」" : ""), 2600);
+    }
+    return true;
+  } catch (_) { return false; }
+}
+
+/* =====================================================================
    初始化
    ===================================================================== */
 function init() {
+  if (EMBED.on) document.documentElement.classList.add("embedded");
   document.title = `${BRAND.name} ${BRAND.product}`;
   $("brandName").innerHTML = `${esc(BRAND.name)} <small>${esc(BRAND.product)}</small>`;
   if (BRAND.homepage) { $("brandLink").href = BRAND.homepage; $("brandLink").target = "_blank"; $("brandLink").rel = "noopener"; }
@@ -1107,12 +1154,15 @@ function init() {
     $("footMode").textContent = `本地模式 · 经 proxy.py 转发到 ${BRAND.apiHost.replace(/^https?:\/\//, "")}`;
     $("baseHint").textContent = "当前经本地代理访问，保持同源即可，一般不用改。";
   } else {
-    $("footMode").textContent = `接口 ${location.host}`;
+    $("footMode").textContent = (EMBED.on ? "面板内嵌 · " : "") + `接口 ${location.host}`;
     $("baseHint").textContent = "页面与接口同域名部署时保持默认。改成其他域名会受 CORS 限制。";
   }
 
-  // 首次使用直接引导填 Key
-  if (!settings.apiKey && MODE !== "file") setTimeout(() => openSettings(true), 300);
+  // 面板嵌入时优先用面板给的身份取 Key；拿不到且本地也没有，再引导手动填
+  if (MODE !== "file") {
+    if (EMBED.token) autofillKeyFromPanel().then(ok => { if (!ok && !settings.apiKey) openSettings(true); });
+    else if (!settings.apiKey) setTimeout(() => openSettings(true), 300);
+  }
 
   // 快捷键
   document.addEventListener("keydown", e => {

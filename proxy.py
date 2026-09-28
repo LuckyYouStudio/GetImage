@@ -27,6 +27,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 TARGET = "https://img.the5288.com"
+PANEL = ""     # Sub2API 面板主机（--panel）。配了才转发 /api/v1/keys，供嵌入模式自动取 Key
 TIMEOUT = 300  # 图片生成可能很慢，给足超时
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -90,8 +91,15 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---------- 路由 ----------
 
-    def _is_api(self):
-        return self.path.startswith(API_PREFIXES)
+    def _route(self):
+        """返回该请求应转发到的上游 origin；None 表示走静态文件。"""
+        path = self.path.split("?", 1)[0]
+        if path.startswith(API_PREFIXES):
+            return TARGET
+        # 面板嵌入模式下页面用登录 token 取用户自己的 API Key，只放行这一个面板接口
+        if PANEL and path == "/api/v1/keys":
+            return PANEL
+        return None
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -100,8 +108,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        if self._is_api():
-            self._forward("GET")
+        upstream = self._route()
+        if upstream:
+            self._forward("GET", upstream)
         else:
             self._static()
 
@@ -109,8 +118,9 @@ class Handler(BaseHTTPRequestHandler):
         self.do_GET()
 
     def do_POST(self):
-        if self._is_api():
-            self._forward("POST")
+        upstream = self._route()
+        if upstream:
+            self._forward("POST", upstream)
         else:
             self._fail(404, "未知路径：%s" % self.path)
 
@@ -135,8 +145,8 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---------- API 转发 ----------
 
-    def _forward(self, method):
-        url = TARGET.rstrip("/") + self.path
+    def _forward(self, method, upstream):
+        url = upstream.rstrip("/") + self.path
         body = None
         if method == "POST":
             length = int(self.headers.get("Content-Length") or 0)
@@ -191,13 +201,15 @@ def _json_str(s):
 
 
 def main():
-    global TARGET
+    global TARGET, PANEL
     ap = argparse.ArgumentParser(description="图片生成器的本地启动器（静态服务 + API 转发）")
     ap.add_argument("--port", type=int, default=8788, help="监听端口（默认 8788）")
     ap.add_argument("--target", default=TARGET, help="转发目标（默认 %s）" % TARGET)
+    ap.add_argument("--panel", default="", help="Sub2API 面板地址，如 https://panel.example.com；配了才转发 /api/v1/keys")
     ap.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
     args = ap.parse_args()
     TARGET = args.target
+    PANEL = args.panel.strip().rstrip("/")
 
     # 端口被占用时自动往后找一个能用的，省得用户自己去查冲突
     srv, port = None, None
