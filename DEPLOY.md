@@ -60,7 +60,7 @@ location /studio/ {
 
 ```javascript
 const BRAND = {
-  name: "LuckyYou",             // 顶栏品牌名
+  name: "the5288",              // 顶栏品牌名，也用作下载文件名前缀
   product: "图像工作台",         // 顶栏产品名
   company: "LuckyYou Studio",   // 页脚
   homepage: "https://www.the5288.com/",
