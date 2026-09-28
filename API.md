@@ -10,7 +10,8 @@
 |---|---|
 | 生成图片 | `POST https://img.the5288.com/v1/images/generations` **[实测]** |
 | 模型列表 | `GET https://img.the5288.com/v1/models` **[实测]** |
-| 图片编辑 | `POST /v1/images/edits` **[未验证]** 未测试，不确定是否支持 |
+| 图片编辑 | `POST https://img.the5288.com/v1/images/edits` **[实测]** 可用，multipart/form-data，见第 3.1 节 |
+| 图片变体 | `POST /v1/images/variations` **[实测]** 404，不支持 |
 
 协议为 OpenAI Images API 兼容格式。
 
@@ -81,6 +82,26 @@ req = urllib.request.Request(url, data=body, headers={
 | `output_format` | string | **[未验证]** `png` / `jpeg` / `webp` |
 | `response_format` | string | **[未验证]** gpt-image 系列通常不支持此字段，恒返回 base64 |
 
+### 3.1 图生图 `POST /v1/images/edits` **[实测]**
+
+`multipart/form-data`，不是 JSON：
+
+| 字段 | 说明 |
+|---|---|
+| `model` | `gpt-image-2` |
+| `prompt` | 对参考图要做什么 |
+| `image` | 参考图文件（PNG / JPEG / WebP）。多张时用 `image[]` 重复字段 **[多张未验证]** |
+| `n` / `size` / `quality` / `background` / `output_format` | 同 generations |
+
+```bash
+curl -X POST "https://img.the5288.com/v1/images/edits" \
+  -H "Authorization: Bearer $API_KEY" -H "User-Agent: curl/8.4.0" --max-time 180 \
+  -F "model=gpt-image-2" -F "prompt=把背景换成黄昏的海边" \
+  -F "image=@photo.png;type=image/png" -o resp.json
+```
+
+**[实测]** 1×1 像素的输入图 + `prompt=make it red`，19.6 秒返回 `HTTP 200`，输出 1254×1254 PNG。响应结构与 generations 相同（见第 4 节）。
+
 ### ⚠️ 服务端不校验参数
 
 **[实测]** 传入非法的 `size`（`"1x1"`）和 `n`（`99`），服务端**既不报错也不遵守**，直接按默认值生成并返回 `HTTP 200`。
@@ -106,13 +127,19 @@ HTTP 400
 ```json
 HTTP 200
 {
-  "background": "auto",
   "created": 1788936242,
+  "background": "auto",
+  "output_format": "png",
+  "quality": "...",
+  "size": "...",
   "data": [
     { "b64_json": "iVBORw0KGgoAAAANSUhEUgAABAAAAAQA..." }
-  ]
+  ],
+  "usage": { ... }
 }
 ```
+
+顶层字段 **[实测]**：`created` `background` `output_format` `quality` `size` `data` `usage`。`usage` 里是 token 用量（OpenAI 约定为 `input_tokens` / `output_tokens` / `total_tokens`，具体值未记录）。**注意 `size` 字段回显的是服务端实际采用的值，不一定等于你传的**——见第 3 节的参数校验警告。
 
 | 特征 | 实测值 |
 |---|---|
@@ -141,6 +168,10 @@ HTTP 200
 | `gpt-image-1` | ❌ 同上 |
 
 **模型出现在 `/v1/models` 列表里 ≠ 可用。** 自动化里不要靠列表做模型发现，硬编码 `gpt-image-2`，并对 502 做告警。
+
+**2026-09-28 补充**：列表里新增了 `gpt-image-2.5`、`gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`，**均未实测**。同日用 `gpt-image-2` + `size=1024x1024` + 不传 `quality` 生成，服务端返回的是 **1370×1148、`quality: "low"`**（9 月 9 日同样参数返回 1024×1024）——再次印证参数由上游决定、随时可能变，以返回的 `size` / `quality` 字段和实际图片为准。
+
+图生图 `/v1/images/edits` 同日实测：2 张参考图（`image[]`）+ 不传 `quality`，38 秒返回 1370×1148、`quality: "medium"`、3813 tokens。文生图 2 张并发各 27 秒、522 tokens。
 
 其余 19 个是 `gpt-5.2` ~ `gpt-6` 系列文本模型。
 
@@ -292,7 +323,7 @@ $resp = Invoke-RestMethod -Uri "https://img.the5288.com/v1/images/generations" -
 - `quality` / `background` / `output_format` 是否真正生效
 - `n = 2..4` 能否返回多张
 - `1536x1024`、`1024x1536` 等非方形尺寸是否被遵守
-- `/v1/images/edits` 图生图端点是否支持
+- `/v1/images/edits` 传多张参考图（`image[]`）是否支持
 - 并发限制、速率限制、单 Key 配额
 - 是否有内容审核拦截及其错误形态
 
