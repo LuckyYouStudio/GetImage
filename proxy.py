@@ -205,7 +205,8 @@ def main():
     ap = argparse.ArgumentParser(description="图片生成器的本地启动器（静态服务 + API 转发）")
     ap.add_argument("--port", type=int, default=8788, help="监听端口（默认 8788）")
     ap.add_argument("--target", default=TARGET, help="转发目标（默认 %s）" % TARGET)
-    ap.add_argument("--panel", default="", help="Sub2API 面板地址，如 https://panel.example.com；配了才转发 /api/v1/keys")
+    ap.add_argument("--panel", default="https://api.the5288.com",
+                    help="Sub2API 面板地址（默认 https://api.the5288.com），用于转发 /api/v1/keys；传空字符串关闭")
     ap.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
     args = ap.parse_args()
     TARGET = args.target

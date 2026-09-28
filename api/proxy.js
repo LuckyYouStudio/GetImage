@@ -17,7 +17,8 @@
 const { Readable } = require("node:stream");
 
 const API_ORIGIN = trimSlash(process.env.API_ORIGIN || "https://img.the5288.com");
-const PANEL_ORIGIN = trimSlash(process.env.PANEL_ORIGIN || "");
+// Sub2API 面板（5288API）。环境变量设为空字符串可关闭自动取 Key
+const PANEL_ORIGIN = trimSlash(process.env.PANEL_ORIGIN !== undefined ? process.env.PANEL_ORIGIN : "https://api.the5288.com");
 // 实测接口会拦截 Python-urllib 之类的 UA；浏览器 UA 原样透传，这里只是缺 UA 时的兜底
 const FALLBACK_UA = process.env.FALLBACK_UA || "curl/8.4.0";
 

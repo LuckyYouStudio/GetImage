@@ -17,7 +17,7 @@
 
 const CONFIG = {
   API_ORIGIN: "https://img.the5288.com",
-  PANEL_ORIGIN: "",
+  PANEL_ORIGIN: "https://api.the5288.com",   // Sub2API 面板（5288API）。设为空字符串可关闭自动取 Key
   // 实测接口会拦截 Python-urllib 这类 UA；浏览器的 UA 会原样透传，这里只是缺 UA 时的兜底
   FALLBACK_UA: "curl/8.4.0",
 };

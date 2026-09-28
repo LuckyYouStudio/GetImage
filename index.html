@@ -149,6 +149,8 @@
   .gen-bar .primary{flex:1;padding:11px 14px;font-size:15px;border-radius:10px}
   .kbd{font-size:11px;color:var(--muted);margin-top:8px;text-align:center}
   .kbd kbd{font:11px ui-monospace,monospace;background:var(--panel-2);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px}
+  .keybadge{margin-top:8px;font-size:12px;color:var(--muted);display:flex;gap:6px;justify-content:center;align-items:center;flex-wrap:wrap}
+  .keybadge span{color:var(--text);font-weight:500;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
   .status{margin-top:12px;font-size:13px;line-height:1.55;border-radius:var(--radius-s);padding:0;min-height:0;white-space:pre-wrap;word-break:break-word}
   .status:empty{display:none}
@@ -336,6 +338,7 @@
         <button class="btn" id="stop" disabled>取消</button>
       </div>
       <div class="kbd"><kbd>Ctrl</kbd> / <kbd>⌘</kbd> + <kbd>Enter</kbd> 生成</div>
+      <div class="keybadge" id="keyBadge" hidden>密钥：<span></span><button class="btn xs" id="keyChange" type="button">更换</button></div>
       <div class="status" id="status"></div>
     </section>
 
@@ -391,6 +394,13 @@
     <div class="box-body">
       <div class="note" id="firstRunNote" hidden>
         <b>首次使用：</b>填入你的 API Key 即可开始。Key 只保存在这台电脑的浏览器里，不会上传到别处。
+      </div>
+      <div class="note" id="pickKeyNote" hidden></div>
+
+      <div class="field" id="panelKeysBlock" hidden>
+        <label>你账号下的 API 密钥（来自面板）</label>
+        <select class="select" id="panelKeySelect"></select>
+        <div class="hint tight">不同密钥属于不同分组，价格和可用模型可能不同——请选<b>用于生图</b>的那个。也可以在下面手动粘贴其他 Key。</div>
       </div>
 
       <div class="field">
@@ -540,6 +550,7 @@ const DEFAULTS = {
   concurrency: "2", theme: "auto",
   size: "1024x1024", quality: "auto", count: "1", background: "", format: "png",
   mode: "generate",
+  keyChoice: null,   // 面板嵌入模式下选中的密钥 {userId, keyId, label}
 };
 const settings = loadSettings();
 
@@ -1100,7 +1111,7 @@ function openSettings(firstRun = false) {
   updateStorageInfo();
   if (firstRun) setTimeout(() => $("apiKey").focus(), 50);
 }
-function closeSettings() { $("settings").hidden = true; }
+function closeSettings() { $("settings").hidden = true; $("pickKeyNote").hidden = true; }
 $("btnSettings").addEventListener("click", () => openSettings(false));
 $("settingsClose").addEventListener("click", closeSettings);
 $("settings").addEventListener("click", e => { if (e.target === $("settings")) closeSettings(); });
@@ -1119,27 +1130,89 @@ $("wipeAll").addEventListener("click", async () => {
 });
 
 /* =====================================================================
-   面板嵌入：用登录 token 自动取用户自己的 API Key
-   /api/v1/keys 由托管层（Cloudflare Worker / proxy.py --panel）转发到面板主机；
-   没配置时是 404，静默回退到手动填写。返回结构按 Sub2API 的分页格式解析，字段 key / name / status。
+   面板嵌入：用登录 token 拉取用户自己的 API Key 列表，并选出用于生图的那一个
+   一个用户往往有多个 Key，分属不同分组（价格、渠道、可用模型都可能不同），不能随手拿第一个。策略：
+     1) 之前在本页选过的（按面板 user_id 记忆）→ 沿用
+     2) 只有一个可用 Key → 直接用
+     3) 名称或分组名里带「生图 / 图片 / image / 绘 / 画 / dall」的 → 优先；唯一命中直接用
+     4) 仍不确定 → 先用命中的第一个保证能出图，同时弹出选择框让用户改
+   /api/v1/keys 由托管层转发到面板主机；没配置时 404，静默回退到手动填写。
+   返回结构按 Sub2API 的分页格式解析，字段 id / key / name / status / group.name。
    ===================================================================== */
-async function autofillKeyFromPanel() {
-  if (!EMBED.token) return false;
+let panelKeys = [];
+const IMAGE_KEY_RE = /生图|图片|图像|绘|画|image|img|dall|picture|photo/i;
+const KEY_STATUS = { inactive: "已禁用", quota_exhausted: "额度用尽", expired: "已过期" };
+
+async function loadPanelKeys() {
+  if (!EMBED.token) return [];
   try {
     const r = await fetch("/api/v1/keys?page=1&page_size=100", { headers: { "Authorization": "Bearer " + EMBED.token } });
-    if (!r.ok) return false;
+    if (!r.ok) return [];
     const j = await r.json();
     const list = (j && (j.items || (j.data && (j.data.items || j.data)) || j.list)) || [];
-    if (!Array.isArray(list)) return false;
-    const pick = list.find(k => k && k.key && k.status === "active") || list.find(k => k && k.key);
-    if (!pick) return false;
-    if (pick.key !== settings.apiKey) {
-      settings.apiKey = pick.key; $("apiKey").value = pick.key; saveSettings();
-      toast("已自动使用你的 API Key" + (pick.name ? "「" + pick.name + "」" : ""), 2600);
-    }
-    return true;
-  } catch (_) { return false; }
+    return Array.isArray(list) ? list.filter(k => k && k.key) : [];
+  } catch (_) { return []; }
 }
+const keyLabel = k => (k.name || "未命名") + (k.group && k.group.name ? " · " + k.group.name : "");
+const keyMasked = k => { const s = String(k.key || ""); return s.length > 12 ? s.slice(0, 7) + "…" + s.slice(-4) : s; };
+
+function pickPanelKey(list) {
+  const usable = list.filter(k => k.status === "active");
+  const pool = usable.length ? usable : list;
+  if (!pool.length) return { key: null, sure: false };
+  const c = settings.keyChoice;
+  if (c && String(c.userId) === String(EMBED.userId)) {
+    const prev = pool.find(k => k.id === c.keyId);
+    if (prev) return { key: prev, sure: true };
+  }
+  if (pool.length === 1) return { key: pool[0], sure: true };
+  const hits = pool.filter(k => IMAGE_KEY_RE.test(k.name || "") || IMAGE_KEY_RE.test((k.group && k.group.name) || ""));
+  if (hits.length === 1) return { key: hits[0], sure: true };
+  return { key: hits[0] || pool[0], sure: false };
+}
+function applyPanelKey(k, silent) {
+  settings.apiKey = k.key;
+  settings.keyChoice = { userId: EMBED.userId, keyId: k.id, label: keyLabel(k) };
+  $("apiKey").value = k.key; saveSettings();
+  renderKeyBadge(); renderKeySelect();
+  if (!silent) toast("已使用密钥「" + keyLabel(k) + "」", 2400);
+}
+function renderKeySelect() {
+  const box = $("panelKeysBlock"), sel = $("panelKeySelect");
+  if (!panelKeys.length) { box.hidden = true; return; }
+  box.hidden = false; sel.innerHTML = "";
+  const ph = el("option", null, "— 手动填写的 Key —"); ph.value = ""; ph.selected = !panelKeys.some(k => k.key === settings.apiKey); sel.appendChild(ph);
+  panelKeys.forEach(k => {
+    const o = el("option", null, `${keyLabel(k)}（${keyMasked(k)}）${k.status !== "active" ? " · " + (KEY_STATUS[k.status] || k.status) : ""}`);
+    o.value = String(k.id); o.disabled = k.status !== "active"; o.selected = k.key === settings.apiKey;
+    sel.appendChild(o);
+  });
+}
+function renderKeyBadge() {
+  const b = $("keyBadge"), c = settings.keyChoice;
+  const show = !!(c && c.label && settings.apiKey);
+  b.hidden = !show; if (show) b.querySelector("span").textContent = c.label;
+}
+async function autofillKeyFromPanel() {
+  panelKeys = await loadPanelKeys();
+  renderKeySelect();
+  if (!panelKeys.length) return false;
+  const { key, sure } = pickPanelKey(panelKeys);
+  if (!key) return false;
+  applyPanelKey(key, sure && key.key === settings.apiKey);
+  if (!sure) {
+    openSettings(false);
+    const n = $("pickKeyNote"); n.hidden = false;
+    n.innerHTML = `<b>你有 ${panelKeys.length} 个 API 密钥。</b>已先选用「${esc(keyLabel(key))}」；如果生图应该用别的密钥，在下面切换即可，下次会记住。`;
+  }
+  return true;
+}
+$("panelKeySelect").addEventListener("change", e => {
+  const k = panelKeys.find(x => String(x.id) === e.target.value);
+  if (k) applyPanelKey(k, false);
+  else { settings.keyChoice = null; saveSettings(); renderKeyBadge(); $("apiKey").focus(); }
+});
+$("keyChange").addEventListener("click", () => openSettings(false));
 
 /* =====================================================================
    初始化
@@ -1155,6 +1228,12 @@ function init() {
 
   applyTheme();
   bindSetting("apiKey", "apiKey", "input");
+  // 手动改了 Key 就不再声称"来自面板的某个密钥"
+  $("apiKey").addEventListener("input", () => {
+    if (settings.keyChoice && !panelKeys.some(k => k.key === settings.apiKey)) { settings.keyChoice = null; saveSettings(); }
+    renderKeyBadge(); renderKeySelect();
+  });
+  renderKeyBadge();
   bindSetting("model", "model", "input");
   bindSetting("baseUrl", "baseUrl", "input");
   bindSetting("concurrency", "concurrency");
