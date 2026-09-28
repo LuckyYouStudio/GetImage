@@ -15,6 +15,16 @@
 > **必做：关掉 Deployment Protection。** Vercel 新项目默认开启「Vercel Authentication → Standard Protection」，它保护的是**除自定义域名以外的所有地址**——`*.vercel.app` 也在内。你自己登录着 Vercel 看得到页面，但用户和 Sub2API 的 iframe 会被跳到 Vercel 登录页。
 > 项目 **Settings → Deployment Protection → 把 Require Log In 开关关掉 → Save**。改完即时生效，不用重新部署。用无痕窗口打开地址确认能直接看到工作台。
 
+**①′ 绑自己的域名（大陆用户必做）**
+
+`*.vercel.app` 在中国大陆基本被封（DNS 污染 + SNI 阻断），自定义域名一般可用。当前生产地址：`https://studio.the5288.com/`。
+
+1. Vercel 项目 → 左侧 **Domains** → **Add Existing** → 输入域名 → Connect to **Production** → Add
+2. Cloudflare → the5288.com → **DNS → Records → Add record**：`CNAME`，Name `studio`，Target `cname.vercel-dns.com`，**Proxy status 必须是 DNS only（灰色云朵）**——橙色代理会让 Vercel 签不出证书
+3. 回到 Vercel 点 Refresh，Valid 后证书自动签发（Let's Encrypt，约 1–3 分钟）
+
+注意：新版 Vercel 的 Domains 不在 Settings 侧栏里，是项目左侧导航的独立一项；Deployment Protection 页里的「Add Domain」是别的功能，别点。
+
 **② 在 Sub2API 后台加标签**
 
 管理员后台 → **系统设置 → 自定义菜单页面 → 添加菜单项**：
@@ -22,9 +32,9 @@
 | 字段 | 填 |
 |---|---|
 | 菜单名称 | `图像工作台` |
-| 页面 URL | `https://<项目名>.vercel.app/` |
+| 页面 URL | `https://studio.the5288.com/` |
 | 可见性 | 普通用户 |
-| 图标 | 可选，上传 SVG |
+| 图标 | 可选，上传 `deploy/icons/image-studio.svg` |
 
 保存。侧边栏出现新标签，Sub2API 会自动把这个地址加进自己的 CSP 白名单，iframe 直接可用。
 
