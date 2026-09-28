@@ -357,7 +357,7 @@
   <span id="footBrand">LuckyYou Studio</span>
   <span>·</span>
   <span id="footMode"></span>
-  <span class="sp"><a id="footGit" href="https://github.com/LuckyYouStudio/GetImage" target="_blank" rel="noopener">GitHub</a></span>
+  <span class="sp"><a id="footGit" target="_blank" rel="noopener" hidden>GitHub</a></span>
 </footer>
 
 <!-- ======== 历史抽屉 ======== -->
@@ -479,12 +479,12 @@ const BRAND = {
   name: "the5288",
   product: "图像工作台",
   company: "LuckyYou Studio",
-  homepage: "https://www.the5288.com/",
-  // 页面不在 API 同域名下时（例如本地 file:// 打开）使用的接口地址
+  // 以下三个链接默认全部留空 —— 页面不带任何外部链接。需要时填上即可显示
+  homepage: "",   // 顶栏品牌名点击跳转
+  keyUrl: "",     // 设置里「去获取 Key」
+  github: "",     // 页脚 GitHub
+  // 页面不在 API 同域名下时（例如本地 file:// 打开）使用的接口地址（不是链接，只用于请求）
   apiHost: "https://img.the5288.com",
-  // 用户去哪里领取 / 管理 API Key。留空则不显示链接
-  keyUrl: "",
-  github: "https://github.com/LuckyYouStudio/GetImage",
   defaultModel: "gpt-image-2",
   // 历史最多保留多少张（IndexedDB，超出自动淘汰最旧的）
   maxHistory: 120,
@@ -1075,9 +1075,10 @@ $("wipeAll").addEventListener("click", async () => {
 function init() {
   document.title = `${BRAND.name} ${BRAND.product}`;
   $("brandName").innerHTML = `${esc(BRAND.name)} <small>${esc(BRAND.product)}</small>`;
-  $("brandLink").href = BRAND.homepage || "#";
+  if (BRAND.homepage) { $("brandLink").href = BRAND.homepage; $("brandLink").target = "_blank"; $("brandLink").rel = "noopener"; }
+  else { $("brandLink").removeAttribute("href"); $("brandLink").style.cursor = "default"; }
   $("footBrand").textContent = BRAND.company;
-  $("footGit").href = BRAND.github; $("footGit").hidden = !BRAND.github;
+  if (BRAND.github) { $("footGit").href = BRAND.github; $("footGit").hidden = false; }
 
   applyTheme();
   bindSetting("apiKey", "apiKey", "input");

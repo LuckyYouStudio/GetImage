@@ -63,10 +63,10 @@ const BRAND = {
   name: "the5288",              // 顶栏品牌名，也用作下载文件名前缀
   product: "图像工作台",         // 顶栏产品名
   company: "LuckyYou Studio",   // 页脚
-  homepage: "https://www.the5288.com/",
-  apiHost: "https://img.the5288.com",   // 仅本地 file:// 模式下使用
-  keyUrl: "",                   // 用户去哪领 Key。填了会在设置里显示「去获取」链接
-  github: "https://github.com/LuckyYouStudio/GetImage",   // 留空则页脚不显示
+  homepage: "",                 // 顶栏品牌名的跳转。留空 = 不可点
+  keyUrl: "",                   // 用户去哪领 Key。留空 = 设置里不显示链接
+  github: "",                   // 页脚 GitHub。留空 = 不显示
+  apiHost: "https://img.the5288.com",   // 仅本地 file:// 模式下使用，不是链接
   defaultModel: "gpt-image-2",
   maxHistory: 120,              // 每个用户浏览器里最多保留多少张历史
 };
