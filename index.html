@@ -504,10 +504,12 @@ const BRAND = {
   maxHistory: 120,
 
   // 接口地址怎么定：
-  //   "fixed"       始终直连 apiHost（纯工具模式）。页面放哪都行，前提是接口侧开放了 CORS
-  //                 （Sub2API：config.yaml 的 cors.allowed_origins 填 ["*"] 或本页面地址）
-  //   "same-origin" 页面从 http(s) 打开时用页面自己的地址（配合 proxy.py / Worker / Caddy 反代）
-  apiMode: "fixed",
+  //   "same-origin" 页面从 http(s) 打开时调用页面自己的地址下的 /v1/*，由托管层转发到接口
+  //                 （Vercel 的 api/proxy.js、Cloudflare Worker、proxy.py、Caddy 反代都属于这种）。
+  //                 不需要接口侧开 CORS。file:// 打开时退回直连 apiHost。
+  //   "fixed"       始终直连 apiHost。页面放哪都行（GitHub Pages / 直接发文件），
+  //                 前提是接口侧开放了 CORS（Sub2API：config.yaml 的 cors.allowed_origins 填 ["*"]）
+  apiMode: "same-origin",
   // 面板联动：嵌在 Sub2API 自定义菜单里时，用面板传来的登录 token 自动拉取并选择用户的 API Key。
   // 关闭后一律让用户自己填 Key；页面仍会把地址栏里的 token 抹掉。
   panelIntegration: false,

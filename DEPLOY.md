@@ -1,10 +1,45 @@
 # 部署与接入中转站
 
-## 0. 纯工具模式（当前默认，最简单）
+## 0. 推荐路径：Vercel 托管 + Sub2API 自定义菜单
 
-工具**写死直连 `https://img.the5288.com`**，用户打开页面 → 提示填 API Key → 开始用。页面本身放哪都行：GitHub Pages、任何静态托管、服务器上随便一个目录，甚至直接把 `index.html` 发给用户双击。
+三步，不碰服务器，不改 Sub2API，不需要开 CORS。
 
-**唯一的前提：接口侧要开放跨域（CORS）。** 否则浏览器会拦掉所有请求——这不是工具能绕过的。
+**① 部署到 Vercel**（约 2 分钟）
+
+1. Vercel → **Add New → Project** → Import `LuckyYouStudio/GetImage`
+2. Framework Preset 选 **Other**，Build Command / Output Directory 留空 → **Deploy**
+3. 打开 `https://<项目名>.vercel.app/`，页脚显示「接口 <项目名>.vercel.app」即成功
+
+仓库里的 `vercel.json` 会把 `/v1/*` 路由到 `api/proxy.js`，由它转发到 `img.the5288.com`。浏览器看来页面和接口同源，所以不需要 CORS。以后 `git push` 自动重新部署。
+
+**② 在 Sub2API 后台加标签**
+
+管理员后台 → **系统设置 → 自定义菜单页面 → 添加菜单项**：
+
+| 字段 | 填 |
+|---|---|
+| 菜单名称 | `图像工作台` |
+| 页面 URL | `https://<项目名>.vercel.app/` |
+| 可见性 | 普通用户 |
+| 图标 | 可选，上传 SVG |
+
+保存。侧边栏出现新标签，Sub2API 会自动把这个地址加进自己的 CSP 白名单，iframe 直接可用。
+
+**③ 用户怎么用**
+
+点标签 → 页面弹出「填入 API Key」→ 去「API 密钥」页复制自己的 Key 粘进来 → 开始出图。Key 存在用户自己的浏览器里，下次不用再填。
+
+> 想省掉"复制 Key"这一步（打开自动带上用户自己的密钥），把 `index.html` 里 `BRAND.panelIntegration` 改为 `true` 后 push 即可，Vercel 侧 `PANEL_ORIGIN` 默认已指向 `api.the5288.com`。多密钥的选择逻辑见 [B3](#b3推荐配置面板地址启用自动取-key)。
+
+建议之后给 Vercel 项目绑一个自己的域名（Settings → Domains）——`vercel.app` 在国内访问不稳定。
+
+---
+
+## 0′. 不要任何托管层（纯静态 / 直接发文件）
+
+如果连 Vercel 也不想要，把 `BRAND.apiMode` 改成 `"fixed"`：工具**写死直连 `https://img.the5288.com`**，页面放哪都行——GitHub Pages、任意静态托管、甚至直接把 `index.html` 发给用户双击。
+
+**代价是接口侧必须开放跨域（CORS）**，否则浏览器会拦掉所有请求。
 
 ### 在 Sub2API 上开 CORS
 
@@ -45,11 +80,11 @@ curl -si -X OPTIONS https://img.the5288.com/v1/images/generations \
 
 ### 开不了 CORS 时
 
-改 `index.html` 里 `BRAND.apiMode` 为 `"same-origin"`，再走下面 A / B / B′ 任意一条——它们都是通过"让页面和接口同源"来绕开 CORS 的。想要面板联动自动取 Key，把 `BRAND.panelIntegration` 改成 `true`。
+保持 `BRAND.apiMode` 为默认的 `"same-origin"`，走第 0 节或下面 A / B / B′ 任意一条——它们都是通过"让页面和接口同源"来绕开 CORS 的。
 
 ---
 
-以下是需要"同源"的几条路，先判断你手上有什么权限：
+以下是"同源"路线的其他托管选择，按你手上的权限选：
 
 | 你能改什么 | 走哪条 | 效果 |
 |---|---|---|

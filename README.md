@@ -22,9 +22,9 @@ GetImage/
 
 ## 部署 / 接入中转站
 
-**默认是纯工具模式**：写死直连 `img.the5288.com`，用户打开页面填自己的 Key 就能用，页面放哪都行（GitHub Pages / 任意静态托管 / 直接发文件）。唯一前提是 Sub2API 开了 CORS（`config.yaml` → `cors.allowed_origins: ["*"]`），详见 [DEPLOY.md](DEPLOY.md) 第 0 节。
+**推荐路径：Vercel 托管 + Sub2API 自定义菜单标签。** 导入本仓库到 Vercel（Framework 选 Other，零配置），在 Sub2API 后台「自定义菜单页面」加一条指向 Vercel 地址。用户点开标签 → 填自己的 API Key → 开始用。不碰服务器、不改 Sub2API、不需要开 CORS。步骤见 [DEPLOY.md](DEPLOY.md) 第 0 节。
 
-开不了 CORS 时，把 `BRAND.apiMode` 改成 `"same-origin"`，再按权限选下面一条：
+其他托管方式按权限选：
 
 - **只有 Sub2API 面板后台**：托管到 **Cloudflare Worker**（`dist/worker.js` 网页粘贴）或 **Vercel**（直接导入本仓库，`vercel.json` + `api/proxy.js` 已备好），再在面板「自定义菜单页面」里加一条指向它。面板会以 iframe 嵌入并带上用户登录 token，工具据此**自动填入用户自己的 API Key**，打开即用。
 - **有服务器权限（推荐）**：放在 Sub2API 旁边，用自己的子域名（如 `studio.the5288.com`），Caddy 层把 `/v1/*` 和 `/api/v1/keys` 反代到后端。不碰 Sub2API 代码，双方升级互不影响，自动取 Key 开箱即用。
