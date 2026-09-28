@@ -12,6 +12,9 @@
 
 仓库里的 `vercel.json` 会把 `/v1/*` 路由到 `api/proxy.js`，由它转发到 `img.the5288.com`。浏览器看来页面和接口同源，所以不需要 CORS。以后 `git push` 自动重新部署。
 
+> **必做：关掉 Deployment Protection。** Vercel 新项目默认开启「Vercel Authentication → Standard Protection」，它保护的是**除自定义域名以外的所有地址**——`*.vercel.app` 也在内。你自己登录着 Vercel 看得到页面，但用户和 Sub2API 的 iframe 会被跳到 Vercel 登录页。
+> 项目 **Settings → Deployment Protection → 把 Require Log In 开关关掉 → Save**。改完即时生效，不用重新部署。用无痕窗口打开地址确认能直接看到工作台。
+
 **② 在 Sub2API 后台加标签**
 
 管理员后台 → **系统设置 → 自定义菜单页面 → 添加菜单项**：

@@ -135,11 +135,17 @@ HTTP 200
   "data": [
     { "b64_json": "iVBORw0KGgoAAAANSUhEUgAABAAAAAQA..." }
   ],
-  "usage": { ... }
+  "usage": {
+    "input_tokens": 19,
+    "input_tokens_details": { "image_tokens": 0, "text_tokens": 19 },
+    "output_tokens": 343,
+    "output_tokens_details": { "image_tokens": 343, "text_tokens": 0 },
+    "total_tokens": 362
+  }
 }
 ```
 
-顶层字段 **[实测]**：`created` `background` `output_format` `quality` `size` `data` `usage`。`usage` 里是 token 用量（OpenAI 约定为 `input_tokens` / `output_tokens` / `total_tokens`，具体值未记录）。**注意 `size` 字段回显的是服务端实际采用的值，不一定等于你传的**——见第 3 节的参数校验警告。
+顶层字段 **[实测]**：`created` `background` `output_format` `quality` `size` `data` `usage`。`usage` 结构如上 **[实测 2026-09-29]**：`quality: low` 的一张图 `output_tokens` 343、合计 362。**注意 `size` 字段回显的是服务端实际采用的值，不一定等于你传的**——见第 3 节的参数校验警告。
 
 | 特征 | 实测值 |
 |---|---|
