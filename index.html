@@ -750,10 +750,36 @@ async function refreshHistCount() {
    参考图（图生图）
    ===================================================================== */
 const refs = []; // {blob, url, name}
-function addRef(blob, name) {
+
+/* 参考图预处理：超过 4 MB 或长边超过 2048 的，先在浏览器里缩一档再上传。
+   两个原因：Vercel 函数的请求体上限是 4.5 MB；上游本来就会把参考图缩到 ~1500px，传大图只是浪费流量。
+   PNG / WebP 优先保留透明通道，实在压不下去才退到 JPEG。 */
+const REF_MAX_BYTES = 4 * 1024 * 1024, REF_MAX_DIM = 2048;
+async function normalizeRef(blob) {
+  const [w, h] = await imageSize(blob);
+  if (blob.size <= REF_MAX_BYTES && Math.max(w, h) <= REF_MAX_DIM) return blob;
+  let bmp = null;
+  try { bmp = await createImageBitmap(blob); } catch (_) { return blob; }
+  const scale = Math.min(1, REF_MAX_DIM / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(bmp.width * scale)); c.height = Math.max(1, Math.round(bmp.height * scale));
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+  if (bmp.close) bmp.close();
+  const toBlob = (type, q) => new Promise(r => c.toBlob(r, type, q));
+  const keepAlpha = blob.type === "image/png" || blob.type === "image/webp";
+  let out = await toBlob(keepAlpha ? "image/png" : "image/jpeg", 0.92);
+  if (out && out.size > REF_MAX_BYTES) out = await toBlob("image/jpeg", 0.88);
+  return (out && out.size < blob.size) ? out : blob;
+}
+
+async function addRef(blob, name) {
   if (!/^image\/(png|jpeg|webp)$/.test(blob.type)) { toast("只支持 PNG / JPEG / WebP"); return; }
-  if (blob.size > 25 * 1024 * 1024) { toast("单张参考图不能超过 25 MB"); return; }
-  refs.push({ blob, url: URL.createObjectURL(blob), name: name || "ref.png" });
+  if (blob.size > 40 * 1024 * 1024) { toast("单张参考图不能超过 40 MB"); return; }
+  const before = blob.size;
+  blob = await normalizeRef(blob);
+  if (blob.size < before) toast(`参考图已压缩：${fmtBytes(before)} → ${fmtBytes(blob.size)}`, 2200);
+  const base = (name || "ref").replace(/\.[a-z0-9]+$/i, "");
+  refs.push({ blob, url: URL.createObjectURL(blob), name: base + "." + extOf(blob) });
   renderRefs();
 }
 function renderRefs() {

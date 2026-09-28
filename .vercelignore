@@ -1,0 +1,10 @@
+# Vercel 部署只需要 index.html + api/ + vercel.json；其余文件不应作为静态资源公开
+proxy.py
+start.bat
+start.sh
+启动.bat
+deploy/
+dist/
+*.md
+.gitattributes
+.gitignore

@@ -87,6 +87,42 @@ Worker → **Settings → Variables and Secrets → Add**：
 
 ---
 
+## B′. 用 Vercel 代替 Cloudflare Worker
+
+同样是"托管页面 + 转发 `/v1/*`"，只是跑在 Vercel 上。仓库里已经带好了 `vercel.json`、`api/proxy.js`、`.vercelignore`，**导入仓库即可，不用改任何东西**。
+
+### 步骤
+
+1. Vercel → **Add New → Project** → Import 这个 GitHub 仓库
+2. **Framework Preset 选 `Other`**，Build Command / Output Directory 都留空 → **Deploy**
+3. 得到 `https://xxx.vercel.app`，打开应看到工作台，页脚显示「接口 xxx.vercel.app」
+4. （推荐）**Settings → Environment Variables** 加 `PANEL_ORIGIN` = 面板地址 → **Redeploy**，启用自动取 Key
+5. 面板菜单配置同 [B4](#b4-在-sub2api-面板加菜单入口)
+
+### Vercel 与 Cloudflare Worker 怎么选
+
+| | Cloudflare Worker | Vercel |
+|---|---|---|
+| 部署方式 | 网页粘贴一个文件 | 导入 GitHub 仓库，之后 push 自动重新部署 |
+| 出图等待（27–56 秒） | 无限制 | Hobby 计划函数 300 秒，够用 |
+| 参考图上传 | 上限 100 MB | **函数请求体上限 4.5 MB**。页面会自动把大图压到 4 MB 以内，正常使用感知不到 |
+| 返回的图片（2–3 MB） | 无限制 | 流式回传，不受 4.5 MB 限制 |
+| 改了 index.html 之后 | 要重新跑 `build_worker.py` 再粘贴 | push 即生效 |
+| 免费额度 | 10 万请求/天 | 100 GB 流量/月、函数按 CPU 时间计（等待上游不计费） |
+| 国内访问 | `workers.dev` 域名时好时坏 | `vercel.app` 域名同样不稳定 |
+
+**两者都建议绑一个自己的域名**，免费域名在国内的可达性都不可靠——你的用户如果主要在国内，这一条比其他所有差异都重要。
+
+Vercel 更省事的地方是和 GitHub 联动：以后改代码 push 就自动上线。Cloudflare 更宽松的地方是没有 4.5 MB 这类限制。两个都免费，选顺手的。
+
+### Vercel 上的转发是怎么做的
+
+`vercel.json` 把 `/v1/*`、`/v1beta/*`、`/api/v1/keys` 三条路径 rewrite 到 `api/proxy.js`，原始路径通过 `?p=` 传入；函数用 Node 原生 `fetch` 转发并把响应**流式**写回。之所以不用 Vercel 的"外部 rewrite"直接代理到 `img.the5288.com`：官方文档没有写明外部 rewrite 的上游超时，而出图要 27–56 秒，不敢赌；函数的 300 秒是明确写在文档里的。
+
+`.vercelignore` 把 `proxy.py`、文档、`dist/` 等排除在部署之外，避免它们被当静态文件公开。
+
+---
+
 ## A. 同域名静态托管（有服务器权限时）
 
 把 `index.html` 放到 `img.the5288.com` 下任意路径。页面启动时发现自己在 http(s) 且不是 localhost，就把接口地址设为 `location.origin`——同源，零跨域，零配置。
