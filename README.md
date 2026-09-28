@@ -25,7 +25,7 @@ GetImage/
 两条路，按你有的权限选，详见 **[DEPLOY.md](DEPLOY.md)**：
 
 - **只有 Sub2API 面板后台**：托管到 **Cloudflare Worker**（`dist/worker.js` 网页粘贴）或 **Vercel**（直接导入本仓库，`vercel.json` + `api/proxy.js` 已备好），再在面板「自定义菜单页面」里加一条指向它。面板会以 iframe 嵌入并带上用户登录 token，工具据此**自动填入用户自己的 API Key**，打开即用。
-- **有服务器权限**：`index.html` 放到 `img.the5288.com` 任意路径，同源直连，零配置。
+- **有服务器权限（推荐）**：放在 Sub2API 旁边，用自己的子域名（如 `studio.the5288.com`），Caddy 层把 `/v1/*` 和 `/api/v1/keys` 反代到后端。不碰 Sub2API 代码，双方升级互不影响，自动取 Key 开箱即用。
 
 品牌名、产品名、链接都在 `index.html` 开头的 `BRAND` 对象里改；改完跑 `python deploy/build_worker.py` 重新生成 Worker。
 

@@ -4,9 +4,11 @@
 
 | 你能改什么 | 走哪条 | 效果 |
 |---|---|---|
-| 中转站服务器 / Caddy | **A. 同域名静态托管** | 最干净，一个文件 + 三行配置 |
-| 只有 Sub2API 面板管理员后台 | **B. Cloudflare Worker + 面板自定义菜单** | 不碰服务器；面板侧边栏出现入口，用户点开即用，还能自动带上他自己的 Key |
+| 中转站服务器 / Caddy | **A. 放在 Sub2API 旁边，用自己的域名** | 推荐。零外部依赖，Sub2API 升级互不影响，自动取 Key 开箱即用 |
+| 只有 Sub2API 面板管理员后台 | **B. Cloudflare Worker / B′. Vercel + 面板自定义菜单** | 不碰服务器；面板侧边栏出现入口，用户点开即用 |
 | 什么都不能改 | 只能走 B，入口靠你自己发链接 | — |
+
+无论哪条路，**工具都不进 Sub2API 的代码或容器**，面板侧只用它公开的"自定义菜单页面"功能挂一个入口。
 
 为什么面板后台**自己**放不了这个页面：Sub2API 的 Markdown 自定义页会剥掉 `<script>`；首页 HTML 虽不净化但站点 CSP 禁止内联脚本；页面文件只能放服务器磁盘 `data/pages/`。三个口子都进不去一个需要跑 JS 的页面。CORS 白名单是配置文件项，后台也改不了。这不是本项目的限制，是 Sub2API 的设计。
 
@@ -123,45 +125,147 @@ Vercel 更省事的地方是和 GitHub 联动：以后改代码 push 就自动�
 
 ---
 
-## A. 同域名静态托管（有服务器权限时）
+## A. 部署在自己的服务器上（推荐）
 
-把 `index.html` 放到 `img.the5288.com` 下任意路径。页面启动时发现自己在 http(s) 且不是 localhost，就把接口地址设为 `location.origin`——同源，零跨域，零配置。
+### 原则：放在 Sub2API 旁边，不放进去
 
-### 步骤
+工具是一个静态 HTML，所有"接入"都在 **Caddy 这一层**完成：Caddy 负责提供页面、把 `/v1/*` 转到 Sub2API 后端。Sub2API 的代码、容器、数据库一概不碰。
 
-1. 服务器上建目录，如 `/srv/getimage/`，放入 `index.html`
-2. Caddy 站点块加一段（中转站响应头里有 `Via: 1.1 Caddy`）：
+这样做的直接好处是**升级互不影响**：
+
+| 动作 | 影响范围 |
+|---|---|
+| Sub2API 升级（换镜像 / 换二进制） | 只动 Sub2API 自己。Caddyfile 和 `/srv/studio/` 不在它的管辖范围 |
+| 工具升级 | `cd /srv/studio && git pull`，或者只覆盖 `index.html`。Sub2API 不用重启 |
+| 面板里的菜单配置 | 存在 Sub2API 数据库的 `custom_menu_items` 里，随数据库一起保留 |
+
+工具对 Sub2API 的依赖只有两处，都是它**公开设计**的特性，不是内部实现：
+
+1. 自定义菜单以 iframe 打开外部 URL，并自动把该 URL 加进 CSP `frame-src`
+2. iframe 地址附带 `token` / `user_id` / `theme`；工具据此调 `GET /api/v1/keys` 自动填 Key
+
+即便某次升级改了 (2) 的接口结构，工具只会退回到"让用户手动填一次 Key"，功能不受影响。别把 HTML 塞进 Sub2API 的 `data/pages/` 靠图片接口回 `text/html`——那是副作用，不是承诺。
+
+### A1. 独立子域名（推荐）
+
+`studio.the5288.com` 专门给工具用，域名干净、和网关互不干扰。
+
+**1. 放文件**
+
+```bash
+git clone https://github.com/LuckyYouStudio/GetImage.git /srv/studio
+```
+
+只有 `index.html` 会被服务，其余文件不会暴露（见下面 `file_server` 只指向单文件的写法）。
+
+**2. Caddyfile 加一个站点块**
+
+先在你现有的 Caddyfile 里找到 `img.the5288.com` 那段的 `reverse_proxy` 目标（形如 `reverse_proxy sub2api:8080` 或 `127.0.0.1:8080`），下面记作 `<后端>`：
+
+```caddyfile
+studio.the5288.com {
+    encode zstd gzip
+
+    # 图片接口：转给 Sub2API 后端，浏览器看来与页面同源
+    handle /v1/* {
+        reverse_proxy <后端>
+    }
+    handle /v1beta/* {
+        reverse_proxy <后端>
+    }
+
+    # 面板嵌入时自动取 Key 用。只放行这一个接口，不要把整个 /api 开出去
+    @keys {
+        path /api/v1/keys
+        method GET
+    }
+    handle @keys {
+        reverse_proxy <后端>
+    }
+
+    # 其余一律回页面（带 query 的嵌入地址、任意子路径都能命中）
+    handle {
+        root * /srv/studio
+        rewrite * /index.html
+        file_server
+        header Cache-Control "no-cache"
+        header X-Content-Type-Options "nosniff"
+        header Referrer-Policy "no-referrer"
+    }
+}
+```
+
+`rewrite * /index.html` 保证只有这一个文件会被服务，仓库里的 `proxy.py`、文档等都不会被访问到。
+
+Docker Compose 部署的 Caddy 需要把目录挂进容器：
+
+```yaml
+services:
+  caddy:
+    volumes:
+      - /srv/studio:/srv/studio:ro
+```
+
+**3. DNS**：`studio.the5288.com` 解析到这台服务器。Caddy 会自动签证书。
+
+**4. 验证**：打开 `https://studio.the5288.com/`，页脚显示「接口 studio.the5288.com」。填 Key 生成一张。
+
+**5. 面板入口**：按 [B4](#b4-在-sub2api-面板加菜单入口) 把 `https://studio.the5288.com/` 加进自定义菜单。因为 `/api/v1/keys` 已经在同一域名下反代到了后端，**自动取 Key 直接可用，不需要任何额外配置**。
+
+### A2. 挂在网关域名的子路径下
+
+不想加子域名时，也可以放在 `img.the5288.com/studio/`：
 
 ```caddyfile
 img.the5288.com {
     handle_path /studio/* {
-        root * /srv/getimage
+        root * /srv/studio
+        rewrite * /index.html
         file_server
         header Cache-Control "no-cache"
     }
-    handle {
-        reverse_proxy 127.0.0.1:3000   # 原有反代，按实际配置
+    @keys {
+        path /api/v1/keys
+        method GET
+    }
+    handle @keys {
+        reverse_proxy <后端>
+    }
+    # ---- 原有的 /v1/* 反代保持不动 ----
+}
+```
+
+页脚应显示「接口 img.the5288.com」。缺点是工具和网关共用域名，日志、限流、以后换域名都会牵扯在一起；A1 更清爽。
+
+### Nginx 等价（A1）
+
+```nginx
+server {
+    server_name studio.the5288.com;
+
+    location /v1/     { proxy_pass http://<后端>; proxy_read_timeout 300s; }
+    location /v1beta/ { proxy_pass http://<后端>; proxy_read_timeout 300s; }
+    location = /api/v1/keys {
+        limit_except GET { deny all; }
+        proxy_pass http://<后端>;
+    }
+    location / {
+        root /srv/studio;
+        try_files /index.html =404;
+        add_header Cache-Control "no-cache";
     }
 }
 ```
 
-Nginx 等价：
+`proxy_read_timeout` 一定要给够——出图 27–56 秒，Nginx 默认 60 秒太贴边。
 
-```nginx
-location /studio/ {
-    alias /srv/getimage/;
-    index index.html;
-    add_header Cache-Control "no-cache";
-}
+### 以后怎么更新工具
+
+```bash
+cd /srv/studio && git pull
 ```
 
-3. 打开 `https://img.the5288.com/studio/`，页脚应显示「接口 img.the5288.com」
-
-这条路同样可以再用 B4 的方法把地址加进面板菜单；如果也想自动取 Key，需要在 Caddy 里把 `/studio/api/v1/keys` 反代到面板——比 Worker 麻烦，一般直接让用户填一次 Key 就好。
-
-### 页面和接口不同域名时
-
-例如页面在 `tool.the5288.com`、接口在 `img.the5288.com`，需要接口侧下发 CORS 头（Sub2API 配置文件 `cors.allowed_origins`，或在 Caddy 层加）。**能同域就同域，或者直接用方案 B，都比开 CORS 省事。**
+没有构建步骤，没有重启，刷新页面即生效。改品牌 / 文案在 `index.html` 开头的 `BRAND` 对象里，改完同样 `git pull` 或直接覆盖文件。
 
 ---
 
