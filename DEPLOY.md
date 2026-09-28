@@ -1,6 +1,55 @@
 # 部署与接入中转站
 
-先判断你手上有什么权限，三条路选一条：
+## 0. 纯工具模式（当前默认，最简单）
+
+工具**写死直连 `https://img.the5288.com`**，用户打开页面 → 提示填 API Key → 开始用。页面本身放哪都行：GitHub Pages、任何静态托管、服务器上随便一个目录，甚至直接把 `index.html` 发给用户双击。
+
+**唯一的前提：接口侧要开放跨域（CORS）。** 否则浏览器会拦掉所有请求——这不是工具能绕过的。
+
+### 在 Sub2API 上开 CORS
+
+找到 Sub2API 的 `config.yaml`（Docker Compose 部署通常在 compose 目录的 `data/config.yaml`；二进制安装在 `/opt/sub2api/data/config.yaml`），加上或修改：
+
+```yaml
+cors:
+  allowed_origins: ["*"]
+  allow_credentials: false
+```
+
+然后重启 Sub2API（`docker compose restart sub2api` 或 `systemctl restart sub2api`）。
+
+- `"*"` 表示允许任何来源，包括用户本地双击打开的文件。Sub2API 配 `"*"` 时会自动关闭 `allow_credentials`，对本工具没有影响（它只用 `Authorization` 头，不用 Cookie）。
+- 只想放行固定地址就写具体来源，例如 `["https://studio.the5288.com", "https://luckyyoustudio.github.io"]`——注意这样 `file://` 打开就不行了。
+- 用环境变量也可以：`CORS_ALLOWED_ORIGINS=*`（Sub2API 通过 viper 把 `cors.allowed_origins` 映射到这个名字）。
+
+验证（在任何机器上）：
+
+```bash
+curl -si -X OPTIONS https://img.the5288.com/v1/images/generations \
+  -H "Origin: https://example.com" -H "Access-Control-Request-Method: POST" | head -12
+```
+
+看到 `HTTP/1.1 204` 和 `Access-Control-Allow-Origin` 头就是开好了；`403` 说明还没生效。
+
+### 然后把页面放出去
+
+任选其一：
+
+| 放哪 | 怎么做 | 用户地址 |
+|---|---|---|
+| GitHub Pages | 仓库 Settings → Pages → Branch 选 `main`、目录 `/ (root)` → Save | `https://luckyyoustudio.github.io/GetImage/` |
+| 自己服务器 | `index.html` 丢进任何已有站点的目录（Caddy `file_server` / Nginx `root` 都行） | 你定 |
+| 直接发文件 | 把 `index.html` 发给用户，双击打开 | — |
+
+再按 [B4](#b4-在-sub2api-面板加菜单入口) 把地址加进面板菜单即可。此模式下面板联动（自动取 Key）默认关闭，用户自己填一次 Key，之后浏览器记住。
+
+### 开不了 CORS 时
+
+改 `index.html` 里 `BRAND.apiMode` 为 `"same-origin"`，再走下面 A / B / B′ 任意一条——它们都是通过"让页面和接口同源"来绕开 CORS 的。想要面板联动自动取 Key，把 `BRAND.panelIntegration` 改成 `true`。
+
+---
+
+以下是需要"同源"的几条路，先判断你手上有什么权限：
 
 | 你能改什么 | 走哪条 | 效果 |
 |---|---|---|

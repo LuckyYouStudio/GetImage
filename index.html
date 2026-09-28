@@ -502,6 +502,15 @@ const BRAND = {
   defaultModel: "gpt-image-2",
   // 历史最多保留多少张（IndexedDB，超出自动淘汰最旧的）
   maxHistory: 120,
+
+  // 接口地址怎么定：
+  //   "fixed"       始终直连 apiHost（纯工具模式）。页面放哪都行，前提是接口侧开放了 CORS
+  //                 （Sub2API：config.yaml 的 cors.allowed_origins 填 ["*"] 或本页面地址）
+  //   "same-origin" 页面从 http(s) 打开时用页面自己的地址（配合 proxy.py / Worker / Caddy 反代）
+  apiMode: "fixed",
+  // 面板联动：嵌在 Sub2API 自定义菜单里时，用面板传来的登录 token 自动拉取并选择用户的 API Key。
+  // 关闭后一律让用户自己填 Key；页面仍会把地址栏里的 token 抹掉。
+  panelIntegration: false,
 };
 
 const STYLE_CHIPS = [
@@ -537,8 +546,13 @@ const EMBED = (() => {
     ["token", "user_id", "src_url", "src_host"].forEach(k => q.delete(k));
     try { history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash); } catch (_) {}
   }
+  if (!BRAND.panelIntegration) { e.token = ""; e.userId = ""; }   // 纯工具模式：不碰面板身份
   return e;
 })();
+
+// 接口地址默认值（用户可在「设置 → 高级」覆盖）
+const DEFAULT_BASE = (BRAND.apiMode === "same-origin" && IS_HTTP) ? location.origin : BRAND.apiHost;
+const API_HOST_NAME = (() => { try { return new URL(DEFAULT_BASE).host; } catch (_) { return DEFAULT_BASE; } })();
 
 /* =====================================================================
    设置（localStorage）
@@ -546,7 +560,7 @@ const EMBED = (() => {
 const SKEY = "lyimg-settings-v2";
 const DEFAULTS = {
   apiKey: "", model: BRAND.defaultModel,
-  baseUrl: IS_HTTP ? location.origin : BRAND.apiHost,
+  baseUrl: DEFAULT_BASE,
   concurrency: "2", theme: "auto",
   size: "1024x1024", quality: "auto", count: "1", background: "", format: "png",
   mode: "generate",
@@ -565,13 +579,13 @@ function loadSettings() {
     } catch (_) {}
   }
   const s = Object.assign({}, DEFAULTS, saved);
-  // 部署形态变了（比如从本地代理换成了正式域名）时，Base URL 跟着当前源走
-  if (IS_HTTP && saved.baseUrlOrigin !== location.origin) s.baseUrl = location.origin;
+  // 用户没有手动改过接口地址时，跟着当前默认值走（部署形态或 apiHost 变了也不会卡在旧地址上）
+  if (!saved.baseUrl || saved.baseUrl === saved.baseUrlDefault) s.baseUrl = DEFAULT_BASE;
   return s;
 }
 function saveSettings() {
   try {
-    localStorage.setItem(SKEY, JSON.stringify(Object.assign({}, settings, { baseUrlOrigin: IS_HTTP ? location.origin : "" })));
+    localStorage.setItem(SKEY, JSON.stringify(Object.assign({}, settings, { baseUrlDefault: DEFAULT_BASE })));
   } catch (_) {}
 }
 function bindSetting(id, key, evt = "change") {
@@ -664,10 +678,15 @@ function explain(err) {
   if (err && err.name === "AbortError") return "已取消。";
   const m = (err && err.message) || String(err);
   if (/Failed to fetch|NetworkError|Load failed/i.test(m)) {
-    if (MODE === "file") return "请求被浏览器拦截（CORS）。\n\n你是直接双击 index.html 打开的，这种方式无法调用接口。请改为双击「启动.bat」，或访问部署在中转站域名下的正式地址。";
-    if (MODE === "local") return "请求发不出去。\n1) proxy.py 可能已经停了——重新运行「启动.bat」。\n2) 或接口地址填错、目标服务不可达。";
     let apiOrigin = ""; try { apiOrigin = new URL(endpoint("")).origin; } catch (_) {}
-    if (apiOrigin && apiOrigin !== location.origin) return `请求被浏览器拦截（CORS）。\n\n页面在 ${location.origin}，但接口在 ${apiOrigin}，两者不同源而接口未开放跨域。解决：把页面部署到接口同一域名下，或在「设置 → 高级」把接口地址改回同源。`;
+    const crossOrigin = apiOrigin && apiOrigin !== location.origin;
+    if (crossOrigin) {
+      const here = MODE === "file" ? "本地文件（file://）" : location.origin;
+      return `请求被浏览器拦截（跨域 / CORS）。\n\n页面在 ${here}，接口在 ${apiOrigin}，而接口没有允许来自本页面的跨域请求。\n\n` +
+             `管理员侧的解法（推荐）：在 Sub2API 的 config.yaml 里设置\n    cors:\n      allowed_origins: ["*"]\n然后重启服务。\n\n` +
+             `不改服务端的替代：双击「启动.bat」用本地代理运行，或把页面部署到接口同一域名下。`;
+    }
+    if (MODE === "local") return "请求发不出去。\n1) proxy.py 可能已经停了——重新运行「启动.bat」。\n2) 或接口地址填错、目标服务不可达。";
     return "请求发不出去，可能是网络问题或服务暂时不可达，请稍后再试。";
   }
   if (/HTTP 401/.test(m)) return m + "\n\nAPI Key 无效或未填写。请到「设置」检查。";
@@ -1250,7 +1269,16 @@ function init() {
 
   // 模式横幅与页脚
   const banner = $("banner");
-  if (MODE === "file") {
+  const fixed = BRAND.apiMode !== "same-origin";
+  if (fixed) {
+    // 纯工具模式：不管页面放哪，都直连 apiHost。是否走得通取决于接口侧有没有开 CORS
+    $("footMode").textContent = (EMBED.on ? "面板内嵌 · " : "") + `接口 ${API_HOST_NAME}` + (MODE === "file" ? " · 本地文件" : "");
+    $("baseHint").textContent = `默认直连 ${API_HOST_NAME}（需要接口侧开放 CORS）。若改走本地代理或同源部署，可填页面自己的地址。`;
+    if (MODE === "file") {
+      banner.hidden = false;
+      banner.innerHTML = `<div class="info">正在以本地文件方式运行，接口 <code>${esc(API_HOST_NAME)}</code>。如果生成时提示"跨域被拦截"，说明接口尚未开放 CORS——可改为双击 <code>启动.bat</code> 运行。</div>`;
+    }
+  } else if (MODE === "file") {
     banner.hidden = false;
     banner.innerHTML = `<div class="err"><b>这样打开用不了。</b>直接双击 index.html 会被浏览器的 CORS 策略拦截。请改为双击同目录的 <code>启动.bat</code>（Windows）或运行 <code>python proxy.py</code>，它会自动打开正确的地址。</div>`;
     $("footMode").textContent = "file:// 模式（不可用）";
