@@ -291,9 +291,6 @@
         <div class="field wide">
           <label>模型</label>
           <select class="select" id="modelSel"></select>
-          <div class="inline" id="customModelWrap" hidden style="margin-top:6px">
-            <input class="input" id="customModel" placeholder="输入模型 ID，例如 gpt-image-2.5" spellcheck="false">
-          </div>
           <div class="hint tight" id="modelNote"></div>
         </div>
         <div class="field">
@@ -721,10 +718,8 @@ $("fetchModels").addEventListener("click", async function () {
       $("modelHint").textContent = `服务端公布了 ${r.ids.length} 个模型，但没有图像类模型——该列表通常不完整，以实际调用为准。`;
     } else {
       const inCat = MODEL_CATALOG.filter(m => r.ids.includes(m.id)).map(m => m.id);
-      const extra = r.pics.filter(p => !MODEL_CATALOG.some(m => m.id === p));
       $("modelHint").innerHTML = `服务端公布的图像模型：${r.pics.map(p => `<code>${esc(p)}</code>`).join(" ")}。` +
-        (inCat.length ? `其中 ${inCat.length} 个在内置列表里。` : "") +
-        (extra.length ? `未内置的可通过「自定义模型」使用。` : "");
+        (inCat.length ? `其中 ${inCat.length} 个在本工具的模型列表里。` : "与本工具的模型列表没有交集，以实际调用为准。");
     }
   } catch (e) { $("modelHint").textContent = explain(e); }
   this.disabled = false; this.textContent = "检测";
@@ -889,49 +884,35 @@ promptEl.addEventListener("input", () => {
 });
 
 /* =====================================================================
-   模型目录（写死）—— 依据 OpenAI 官方文档，2026-09-29 核对
-   family 决定尺寸与参数能力：
-     g2  gpt-image-2 / 2.5：三档预设 + 自定义尺寸（16 的倍数，单边 ≤3840，比例 ≤3:1，像素 655,360–8,294,400）
-     g1  gpt-image-1 / 1-mini / 1.5 / chatgpt-image-latest：仅三档预设
-     d3  dall-e-3：1024²、1792×1024、1024×1792；质量 standard / hd；不支持背景/格式/图生图
-     d2  dall-e-2：256² / 512² / 1024²；无质量参数
+   模型目录（写死）—— 依据 OpenAI 官方文档，2026-09-29 核对；只保留 GPT Image 2 系列
+   三者尺寸能力相同：三档预设 + 自定义尺寸（16 的倍数，单边 ≤3840，比例 ≤3:1，像素 655,360–8,294,400）
+   2.5 系列比 2 多出 xhigh / max 两个质量档
    ===================================================================== */
 const MODEL_CATALOG = [
-  { id: "gpt-image-2.5-sunburst", group: "GPT Image 2.5（2026-09，最新）", label: "GPT Image 2.5 Sunburst", note: "最强画质，编辑最精准", family: "g2", qualities: ["low", "medium", "high", "xhigh", "max"] },
-  { id: "gpt-image-2.5-flare",    group: "GPT Image 2.5（2026-09，最新）", label: "GPT Image 2.5 Flare",    note: "快，日常生成首选",     family: "g2", qualities: ["low", "medium", "high", "xhigh", "max"] },
-  { id: "gpt-image-2",            group: "GPT Image 2（2026-04）",        label: "GPT Image 2",            note: "稳定，本站已验证",     family: "g2", qualities: ["low", "medium", "high"] },
-  { id: "gpt-image-1.5",          group: "上一代",                        label: "GPT Image 1.5",          note: "2025-12",              family: "g1", qualities: ["low", "medium", "high"] },
-  { id: "gpt-image-1",            group: "上一代",                        label: "GPT Image 1",            note: "2025-04",              family: "g1", qualities: ["low", "medium", "high"] },
-  { id: "gpt-image-1-mini",       group: "上一代",                        label: "GPT Image 1 Mini",       note: "更便宜",               family: "g1", qualities: ["low", "medium", "high"] },
-  { id: "chatgpt-image-latest",   group: "上一代",                        label: "ChatGPT Image Latest",   note: "ChatGPT 同款别名",     family: "g1", qualities: ["low", "medium", "high"] },
-  { id: "dall-e-3",               group: "DALL·E（旧线）",                 label: "DALL·E 3",               note: "不支持图生图",         family: "d3", qualities: ["standard", "hd"] },
-  { id: "dall-e-2",               group: "DALL·E（旧线）",                 label: "DALL·E 2",               note: "仅方形",               family: "d2", qualities: [] },
+  { id: "gpt-image-2.5-sunburst", group: "GPT Image 2.5（2026-09，最新）", label: "GPT Image 2.5 Sunburst", note: "最强画质，编辑最精准", qualities: ["low", "medium", "high", "xhigh", "max"] },
+  { id: "gpt-image-2.5-flare",    group: "GPT Image 2.5（2026-09，最新）", label: "GPT Image 2.5 Flare",    note: "快，日常生成首选",     qualities: ["low", "medium", "high", "xhigh", "max"] },
+  { id: "gpt-image-2",            group: "GPT Image 2（2026-04）",        label: "GPT Image 2",            note: "稳定，本站已验证",     qualities: ["low", "medium", "high"] },
 ];
-const CUSTOM_MODEL = { id: "__custom__", family: "g2", qualities: ["low", "medium", "high", "xhigh", "max"], custom: true };
 
-// 各 family 的尺寸预设。g2 在官方三档之外补齐常用比例，全部满足自定义尺寸规则
-const SIZE_PRESETS = {
-  g2: [
-    ["auto", "自动（由模型决定）"],
-    ["1024x1024", "1024 × 1024 · 1:1"], ["1536x1024", "1536 × 1024 · 3:2 横"], ["1024x1536", "1024 × 1536 · 2:3 竖"],
-    ["1280x720", "1280 × 720 · 16:9 小"], ["720x1280", "720 × 1280 · 9:16 小"],
-    ["1920x1088", "1920 × 1088 · 16:9"], ["1088x1920", "1088 × 1920 · 9:16"],
-    ["2048x1536", "2048 × 1536 · 4:3"], ["1536x2048", "1536 × 2048 · 3:4"],
-    ["2304x1536", "2304 × 1536 · 3:2 大"], ["1536x2304", "1536 × 2304 · 2:3 大"],
-    ["2048x2048", "2048 × 2048 · 1:1 大"],
-    ["2560x1440", "2560 × 1440 · 16:9 2K"], ["1440x2560", "1440 × 2560 · 9:16 2K"],
-    ["2688x1152", "2688 × 1152 · 21:9 超宽"],
-    ["3840x2160", "3840 × 2160 · 16:9 4K"], ["2160x3840", "2160 × 3840 · 9:16 4K"],
-    ["custom", "自定义…"],
-  ],
-  g1: [["auto", "自动"], ["1024x1024", "1024 × 1024 · 1:1"], ["1536x1024", "1536 × 1024 · 3:2 横"], ["1024x1536", "1024 × 1536 · 2:3 竖"]],
-  d3: [["1024x1024", "1024 × 1024 · 1:1"], ["1792x1024", "1792 × 1024 · 横"], ["1024x1792", "1024 × 1792 · 竖"]],
-  d2: [["1024x1024", "1024 × 1024"], ["512x512", "512 × 512"], ["256x256", "256 × 256"]],
-};
-const QUALITY_LABELS = { low: "低 · 快 · 便宜", medium: "中", high: "高", xhigh: "超高", max: "最高 · 最慢", standard: "标准", hd: "HD" };
+// 尺寸预设：官方三档之外补齐常用比例，全部满足自定义尺寸规则
+const SIZE_PRESETS = [
+  ["auto", "自动（由模型决定）"],
+  ["1024x1024", "1024 × 1024 · 1:1"], ["1536x1024", "1536 × 1024 · 3:2 横"], ["1024x1536", "1024 × 1536 · 2:3 竖"],
+  ["1280x720", "1280 × 720 · 16:9 小"], ["720x1280", "720 × 1280 · 9:16 小"],
+  ["1920x1088", "1920 × 1088 · 16:9"], ["1088x1920", "1088 × 1920 · 9:16"],
+  ["2048x1536", "2048 × 1536 · 4:3"], ["1536x2048", "1536 × 2048 · 3:4"],
+  ["2304x1536", "2304 × 1536 · 3:2 大"], ["1536x2304", "1536 × 2304 · 2:3 大"],
+  ["2048x2048", "2048 × 2048 · 1:1 大"],
+  ["2560x1440", "2560 × 1440 · 16:9 2K"], ["1440x2560", "1440 × 2560 · 9:16 2K"],
+  ["2688x1152", "2688 × 1152 · 21:9 超宽"],
+  ["3840x2160", "3840 × 2160 · 16:9 4K"], ["2160x3840", "2160 × 3840 · 9:16 4K"],
+  ["custom", "自定义…"],
+];
+const QUALITY_LABELS = { low: "低 · 快 · 便宜", medium: "中", high: "高", xhigh: "超高", max: "最高 · 最慢" };
 
 function currentModelEntry() {
-  return MODEL_CATALOG.find(m => m.id === settings.model) || Object.assign({}, CUSTOM_MODEL, { id: settings.model });
+  // 旧版本保存过的其他模型名一律回落到默认型号
+  return MODEL_CATALOG.find(m => m.id === settings.model) || MODEL_CATALOG.find(m => m.id === BRAND.defaultModel) || MODEL_CATALOG[0];
 }
 function validateCustomSize(w, h) {
   if (!(w > 0 && h > 0)) return "请填写宽和高";
@@ -956,27 +937,16 @@ function renderModelSel() {
     if (m.group !== lastGroup) { og = document.createElement("optgroup"); og.label = m.group; sel.appendChild(og); lastGroup = m.group; }
     const o = el("option", null, `${m.label} — ${m.note}`); o.value = m.id; og.appendChild(o);
   });
-  const ogc = document.createElement("optgroup"); ogc.label = "其他";
-  const oc = el("option", null, "自定义模型 ID…"); oc.value = "__custom__"; ogc.appendChild(oc); sel.appendChild(ogc);
-  const known = MODEL_CATALOG.some(m => m.id === settings.model);
-  sel.value = known ? settings.model : "__custom__";
-  $("customModelWrap").hidden = known;
-  if (!known) $("customModel").value = settings.model || "";
+  settings.model = currentModelEntry().id;
+  sel.value = settings.model;
 }
 function applyModelCapabilities() {
   const m = currentModelEntry();
-  settings.size = fillSelect($("size"), SIZE_PRESETS[m.family] || SIZE_PRESETS.g2, settings.size);
-  const qs = [["auto", "自动"]].concat(m.qualities.map(q => [q, QUALITY_LABELS[q] || q]));
-  settings.quality = fillSelect($("quality"), m.family === "d2" ? [["auto", "（该模型无质量参数）"]] : qs, settings.quality);
-  const legacy = m.family === "d3" || m.family === "d2";
-  $("bgField").hidden = legacy; $("fmtField").hidden = legacy;
+  settings.size = fillSelect($("size"), SIZE_PRESETS, settings.size);
+  settings.quality = fillSelect($("quality"), [["auto", "自动"]].concat(m.qualities.map(q => [q, QUALITY_LABELS[q] || q])), settings.quality);
   $("customSizeWrap").hidden = settings.size !== "custom";
-  $("modelNote").textContent =
-    m.custom ? "按 GPT Image 2 系列的能力处理参数；服务端不支持的参数会报错，届时把对应项改回「自动」。" :
-    m.family === "g2" ? "支持任意自定义尺寸（16 的倍数），2.5 系列支持 超高/最高 质量档。部分通道的上游会按自己的默认值出图，以结果卡片上的真实尺寸为准。" :
-    m.family === "g1" ? "仅三档尺寸，质量 低/中/高。" :
-    m.family === "d3" ? "DALL·E 3 只做文生图，不支持参考图、透明背景和格式选择。" :
-    "DALL·E 2 只支持方形，无质量参数。";
+  $("modelNote").textContent = (m.qualities.includes("xhigh") ? "支持 超高 / 最高 质量档。" : "质量档 低 / 中 / 高。") +
+    "支持自定义尺寸（16 的倍数）。部分通道的上游会按自己的默认值出图，以结果卡片上的真实尺寸为准。";
   saveSettings();
 }
 function resolveSize() {
@@ -991,12 +961,7 @@ function resolveSize() {
 function initModelUI() {
   renderModelSel();
   applyModelCapabilities();
-  $("modelSel").addEventListener("change", e => {
-    if (e.target.value === "__custom__") { $("customModelWrap").hidden = false; $("customModel").focus(); settings.model = $("customModel").value.trim() || settings.model; }
-    else { $("customModelWrap").hidden = true; settings.model = e.target.value; }
-    applyModelCapabilities();
-  });
-  $("customModel").addEventListener("input", e => { settings.model = e.target.value.trim(); saveSettings(); });
+  $("modelSel").addEventListener("change", e => { settings.model = e.target.value; applyModelCapabilities(); });
   $("size").addEventListener("change", () => { $("customSizeWrap").hidden = settings.size !== "custom"; });
   const chk = () => {
     const w = parseInt(settings.customW, 10), h = parseInt(settings.customH, 10);
@@ -1019,23 +984,16 @@ function generate() {
   const prompt = promptEl.value.trim();
   if (!settings.apiKey.trim()) { openSettings(true); setStatus("请先在「设置」里填写 API Key。", "err"); return; }
   if (!prompt) { setStatus("请先输入提示词。", "err"); promptEl.focus(); return; }
-  if (settings.mode === "edit" && currentModelEntry().family === "d3") { setStatus("DALL·E 3 不支持图生图，请换成 GPT Image 系列。", "err"); return; }
   if (settings.mode === "edit" && !refs.length) { setStatus("图生图需要至少一张参考图。", "err"); return; }
   try { endpoint(""); } catch (e) { setStatus(e.message, "err"); return; }
 
   const n = parseInt(settings.count, 10) || 1;
-  const model = (settings.model || BRAND.defaultModel).trim();
-  if (!model) { setStatus("请先选择或填写模型。", "err"); return; }
-  const entry = currentModelEntry();
-  if (settings.mode === "edit" && entry.family === "d3") { setStatus("DALL·E 3 不支持图生图，请换成 GPT Image 系列。", "err"); return; }
+  const model = currentModelEntry().id;
   let size;
   try { size = resolveSize(); } catch (e) { setStatus(e.message, "err"); $("customW").focus(); return; }
-  const legacy = entry.family === "d3" || entry.family === "d2";
   const common = {
     mode: settings.mode, prompt, model, size,
-    quality: entry.family === "d2" ? "auto" : settings.quality,
-    background: legacy ? "" : settings.background,
-    format: legacy ? "png" : settings.format,
+    quality: settings.quality, background: settings.background, format: settings.format,
     refs: settings.mode === "edit" ? refs.map(r => ({ blob: r.blob, name: r.name })) : [],
   };
 
