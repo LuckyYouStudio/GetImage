@@ -378,6 +378,7 @@
     <h2>历史记录</h2>
     <span class="meta" id="histMeta"></span>
     <div class="sp">
+      <button class="btn sm" id="histDlAll">全部下载</button>
       <button class="btn sm danger" id="histClear">清空</button>
       <button class="btn sm" id="histClose">关闭</button>
     </div>
@@ -652,6 +653,58 @@ function download(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 function extOf(blob) { return ({ "image/jpeg": "jpg", "image/webp": "webp" })[blob.type] || "png"; }
+
+/* ---------- 极简 ZIP 写入器（存储模式，不压缩） ----------
+   图片本身已是压缩格式，再压没意义；存储模式只需要 CRC32 和几段固定头。
+   数据段直接引用原 Blob，不复制字节；单包 < 4 GB、条目 < 65535 即可，够用。 */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; }
+  return t;
+})();
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+async function buildZip(files, onProgress) {   // files: [{ name, blob, ts }]
+  const enc = new TextEncoder(), parts = [], central = [];
+  const le16 = v => [v & 255, (v >> 8) & 255], le32 = v => [v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >>> 24) & 255];
+  let offset = 0;
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    const bytes = new Uint8Array(await f.blob.arrayBuffer());
+    const crc = crc32(bytes), size = bytes.length, name = enc.encode(f.name);
+    const d = new Date(f.ts || Date.now());
+    const dosTime = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+    const dosDate = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+    const local = new Uint8Array([...le32(0x04034b50), ...le16(20), ...le16(0x0800), ...le16(0), ...le16(dosTime), ...le16(dosDate),
+      ...le32(crc), ...le32(size), ...le32(size), ...le16(name.length), ...le16(0)]);
+    parts.push(local, name, f.blob);
+    central.push(new Uint8Array([...le32(0x02014b50), ...le16(20), ...le16(20), ...le16(0x0800), ...le16(0), ...le16(dosTime), ...le16(dosDate),
+      ...le32(crc), ...le32(size), ...le32(size), ...le16(name.length), ...le16(0), ...le16(0), ...le16(0), ...le16(0), ...le32(0), ...le32(offset)]), name);
+    offset += local.length + name.length + size;
+    if (onProgress) onProgress(i + 1, files.length);
+  }
+  const cdSize = central.reduce((a, p) => a + p.length, 0);
+  const eocd = new Uint8Array([...le32(0x06054b50), ...le16(0), ...le16(0), ...le16(files.length), ...le16(files.length), ...le32(cdSize), ...le32(offset), ...le16(0)]);
+  return new Blob([...parts, ...central, eocd], { type: "application/zip" });
+}
+
+/* 把一组图片记录打成一个 ZIP 下载：按时间正序编号，附带 index.json 与 prompts.txt */
+async function downloadAsZip(items, label, onProgress) {
+  const list = items.slice().sort((a, b) => a.ts - b.ts);
+  const pad = String(list.length).length < 3 ? 3 : String(list.length).length;
+  const files = [], manifest = [], lines = [];
+  list.forEach((it, i) => {
+    const name = `${String(i + 1).padStart(pad, "0")}-${stamp(new Date(it.ts))}.${extOf(it.blob)}`;
+    files.push({ name, blob: it.blob, ts: it.ts });
+    manifest.push({ file: name, prompt: it.prompt, mode: it.mode, model: it.model, size: it.size, quality: it.quality, format: it.format, time: new Date(it.ts).toISOString(), usage: it.usage || null });
+    lines.push(`${name}\n  ${it.mode === "edit" ? "图生图" : "文生图"} · ${it.model} · ${it.size} · ${fmtTime(it.ts)}\n  ${it.prompt}\n`);
+  });
+  const enc = new TextEncoder();
+  files.push({ name: "index.json", blob: new Blob([enc.encode(JSON.stringify(manifest, null, 2))]), ts: Date.now() });
+  files.push({ name: "prompts.txt", blob: new Blob([enc.encode(lines.join("\n"))]), ts: Date.now() });
+  const zip = await buildZip(files, onProgress);
+  download(zip, `${BRAND.name}-${label}-${stamp()}.zip`);
+  return zip.size;
+}
 
 /* =====================================================================
    API
@@ -1153,9 +1206,14 @@ $("clear").addEventListener("click", () => {
   $("results").innerHTML = `<div class="empty"><div class="big">✦</div>已清空本次结果<br><span style="font-size:12.5px">图片仍保留在「历史」里</span></div>`;
   updateResultsHead(); setStatus("");
 });
-$("dlAll").addEventListener("click", () => {
-  results.forEach((r, i) => setTimeout(() => download(r.blob, `${BRAND.name}-${stamp(new Date(r.ts))}-${i + 1}.${extOf(r.blob)}`), i * 350));
-  toast(`开始下载 ${results.length} 张`);
+$("dlAll").addEventListener("click", async function () {
+  if (!results.length) return;
+  this.disabled = true;
+  try {
+    const bytes = await downloadAsZip(results, "本次", (n, t) => { this.textContent = `打包 ${n}/${t}…`; });
+    toast(`已打包 ${results.length} 张（${fmtBytes(bytes)}）`);
+  } catch (e) { toast("打包失败：" + (e && e.message || e), 3000); }
+  this.textContent = "全部下载"; this.disabled = false;
 });
 function useAsRef(item) {
   addRef(item.blob, `from-${item.ts}.${extOf(item.blob)}`);
@@ -1219,6 +1277,16 @@ async function renderHistory() {
 $("btnHistory").addEventListener("click", openDrawer);
 $("histClose").addEventListener("click", closeDrawer);
 $("drawerScrim").addEventListener("click", closeDrawer);
+$("histDlAll").addEventListener("click", async function () {
+  if (!histItems.length) { toast("历史为空"); return; }
+  this.disabled = true; $("histClear").disabled = true;
+  const meta = $("histMeta"), old = meta.textContent;
+  try {
+    const bytes = await downloadAsZip(histItems, "历史", (n, t) => { meta.textContent = `打包中 ${n} / ${t}…`; });
+    meta.textContent = old; toast(`已打包 ${histItems.length} 张（${fmtBytes(bytes)}），含 index.json 与 prompts.txt`, 3000);
+  } catch (e) { meta.textContent = old; toast("打包失败：" + (e && e.message || e), 3000); }
+  this.disabled = false; $("histClear").disabled = false;
+});
 $("histClear").addEventListener("click", async () => {
   if (!histItems.length) return;
   if (!confirm(`确定清空全部 ${histItems.length} 张历史记录？此操作不可恢复。`)) return;
