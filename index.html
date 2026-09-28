@@ -288,23 +288,30 @@
       <div class="chips" id="chips"></div>
 
       <div class="params">
+        <div class="field wide">
+          <label>模型</label>
+          <select class="select" id="modelSel"></select>
+          <div class="inline" id="customModelWrap" hidden style="margin-top:6px">
+            <input class="input" id="customModel" placeholder="输入模型 ID，例如 gpt-image-2.5" spellcheck="false">
+          </div>
+          <div class="hint tight" id="modelNote"></div>
+        </div>
         <div class="field">
           <label>尺寸</label>
-          <select class="select" id="size">
-            <option value="auto">自动</option>
-            <option value="1024x1024" selected>1024 × 1024 方形</option>
-            <option value="1536x1024">1536 × 1024 横版</option>
-            <option value="1024x1536">1024 × 1536 竖版</option>
-          </select>
+          <select class="select" id="size"></select>
         </div>
         <div class="field">
           <label>质量</label>
-          <select class="select" id="quality">
-            <option value="auto" selected>自动</option>
-            <option value="low">低 · 更快</option>
-            <option value="medium">中</option>
-            <option value="high">高 · 更慢</option>
-          </select>
+          <select class="select" id="quality"></select>
+        </div>
+        <div class="field wide" id="customSizeWrap" hidden>
+          <label>自定义尺寸（宽 × 高，像素）</label>
+          <div class="inline">
+            <input class="input" id="customW" type="number" min="16" step="16" placeholder="宽，如 1920">
+            <span class="hint">×</span>
+            <input class="input" id="customH" type="number" min="16" step="16" placeholder="高，如 1088">
+          </div>
+          <div class="hint tight" id="customSizeHint">宽高均为 16 的倍数，单边 ≤ 3840，宽高比 ≤ 3:1，总像素 655,360 – 8,294,400。</div>
         </div>
         <div class="field">
           <label>数量</label>
@@ -315,7 +322,7 @@
             <option value="4">4 张</option>
           </select>
         </div>
-        <div class="field">
+        <div class="field" id="bgField">
           <label>背景</label>
           <select class="select" id="background">
             <option value="" selected>默认</option>
@@ -323,7 +330,7 @@
             <option value="opaque">不透明</option>
           </select>
         </div>
-        <div class="field wide">
+        <div class="field wide" id="fmtField">
           <label>输出格式</label>
           <select class="select" id="format">
             <option value="png" selected>PNG（无损，支持透明）</option>
@@ -413,13 +420,12 @@
       </div>
 
       <div class="field">
-        <label>模型</label>
+        <label>模型可用性</label>
         <div class="inline">
-          <input class="input" id="model" list="modelList" placeholder="gpt-image-2" spellcheck="false">
-          <button class="btn sm" id="fetchModels" title="从服务端拉取可用模型列表">拉取列表</button>
+          <span class="hint" style="flex:1">模型在主界面选择。这里可以检测服务端公布了哪些图像模型。</span>
+          <button class="btn sm" id="fetchModels" title="请求 /v1/models 并对照内置模型表">检测</button>
         </div>
-        <datalist id="modelList"><option value="gpt-image-2"></option></datalist>
-        <div class="hint tight" id="modelHint">默认 <code>gpt-image-2</code>。点「拉取列表」可查看服务端实际支持的模型。</div>
+        <div class="hint tight" id="modelHint"></div>
       </div>
 
       <div class="field">
@@ -499,7 +505,7 @@ const BRAND = {
   github: "",     // 页脚 GitHub
   // 页面不在 API 同域名下时（例如本地 file:// 打开）使用的接口地址（不是链接，只用于请求）
   apiHost: "https://img.the5288.com",
-  defaultModel: "gpt-image-2",
+  defaultModel: "gpt-image-2.5-flare",   // 2026-09-29 在本站实测可用；候选见 MODEL_CATALOG
   // 历史最多保留多少张（IndexedDB，超出自动淘汰最旧的）
   maxHistory: 120,
 
@@ -565,6 +571,7 @@ const DEFAULTS = {
   baseUrl: DEFAULT_BASE,
   concurrency: "2", theme: "auto",
   size: "1024x1024", quality: "auto", count: "1", background: "", format: "png",
+  customW: "", customH: "",
   mode: "generate",
   keyChoice: null,   // 面板嵌入模式下选中的密钥 {userId, keyId, label}
 };
@@ -704,22 +711,30 @@ async function loadModels() {
   const j = await fetch(endpoint("/models"), { headers: authHeaders() }).then(parseJSON);
   const ids = ((j && j.data) || []).map(m => m && m.id).filter(Boolean).sort();
   if (!ids.length) throw new Error("返回的模型列表为空");
-  const dl = $("modelList"); dl.innerHTML = "";
-  ids.forEach(id => { const o = el("option"); o.value = id; dl.appendChild(o); });
   return { ids, pics: ids.filter(i => IMAGE_MODEL_RE.test(i)) };
 }
 $("fetchModels").addEventListener("click", async function () {
-  this.disabled = true; this.textContent = "拉取中…";
+  this.disabled = true; this.textContent = "检测中…";
   try {
     const r = await loadModels();
-    $("modelHint").innerHTML = `已拉取 ${r.ids.length} 个模型。图像类：${r.pics.length ? r.pics.map(p => `<code>${esc(p)}</code>`).join(" ") : "未识别出"}。`;
+    if (!r.pics.length) {
+      $("modelHint").textContent = `服务端公布了 ${r.ids.length} 个模型，但没有图像类模型——该列表通常不完整，以实际调用为准。`;
+    } else {
+      const inCat = MODEL_CATALOG.filter(m => r.ids.includes(m.id)).map(m => m.id);
+      const extra = r.pics.filter(p => !MODEL_CATALOG.some(m => m.id === p));
+      $("modelHint").innerHTML = `服务端公布的图像模型：${r.pics.map(p => `<code>${esc(p)}</code>`).join(" ")}。` +
+        (inCat.length ? `其中 ${inCat.length} 个在内置列表里。` : "") +
+        (extra.length ? `未内置的可通过「自定义模型」使用。` : "");
+    }
   } catch (e) { $("modelHint").textContent = explain(e); }
-  this.disabled = false; this.textContent = "拉取列表";
+  this.disabled = false; this.textContent = "检测";
 });
 async function diagnose(model) {
   try {
     const r = await loadModels();
-    const avail = r.pics.length ? `服务端的图像模型：${r.pics.join("、")}` : "服务端未识别出图像类模型。";
+    // 服务端列表里连一个图像模型都没有时（本中转站常见），列表不具参考价值，别误导用户
+    if (!r.pics.length) return "";
+    const avail = `服务端的图像模型：${r.pics.join("、")}`;
     return r.ids.includes(model)
       ? `\n\n【诊断】模型「${model}」在服务端列表里，问题不在模型名——更可能是 Key 对该模型无权限，或上游通道故障。${avail}`
       : `\n\n【诊断】服务端列表里没有「${model}」。${avail}\n到「设置」把模型改成其中之一。`;
@@ -874,6 +889,125 @@ promptEl.addEventListener("input", () => {
 });
 
 /* =====================================================================
+   模型目录（写死）—— 依据 OpenAI 官方文档，2026-09-29 核对
+   family 决定尺寸与参数能力：
+     g2  gpt-image-2 / 2.5：三档预设 + 自定义尺寸（16 的倍数，单边 ≤3840，比例 ≤3:1，像素 655,360–8,294,400）
+     g1  gpt-image-1 / 1-mini / 1.5 / chatgpt-image-latest：仅三档预设
+     d3  dall-e-3：1024²、1792×1024、1024×1792；质量 standard / hd；不支持背景/格式/图生图
+     d2  dall-e-2：256² / 512² / 1024²；无质量参数
+   ===================================================================== */
+const MODEL_CATALOG = [
+  { id: "gpt-image-2.5-sunburst", group: "GPT Image 2.5（2026-09，最新）", label: "GPT Image 2.5 Sunburst", note: "最强画质，编辑最精准", family: "g2", qualities: ["low", "medium", "high", "xhigh", "max"] },
+  { id: "gpt-image-2.5-flare",    group: "GPT Image 2.5（2026-09，最新）", label: "GPT Image 2.5 Flare",    note: "快，日常生成首选",     family: "g2", qualities: ["low", "medium", "high", "xhigh", "max"] },
+  { id: "gpt-image-2",            group: "GPT Image 2（2026-04）",        label: "GPT Image 2",            note: "稳定，本站已验证",     family: "g2", qualities: ["low", "medium", "high"] },
+  { id: "gpt-image-1.5",          group: "上一代",                        label: "GPT Image 1.5",          note: "2025-12",              family: "g1", qualities: ["low", "medium", "high"] },
+  { id: "gpt-image-1",            group: "上一代",                        label: "GPT Image 1",            note: "2025-04",              family: "g1", qualities: ["low", "medium", "high"] },
+  { id: "gpt-image-1-mini",       group: "上一代",                        label: "GPT Image 1 Mini",       note: "更便宜",               family: "g1", qualities: ["low", "medium", "high"] },
+  { id: "chatgpt-image-latest",   group: "上一代",                        label: "ChatGPT Image Latest",   note: "ChatGPT 同款别名",     family: "g1", qualities: ["low", "medium", "high"] },
+  { id: "dall-e-3",               group: "DALL·E（旧线）",                 label: "DALL·E 3",               note: "不支持图生图",         family: "d3", qualities: ["standard", "hd"] },
+  { id: "dall-e-2",               group: "DALL·E（旧线）",                 label: "DALL·E 2",               note: "仅方形",               family: "d2", qualities: [] },
+];
+const CUSTOM_MODEL = { id: "__custom__", family: "g2", qualities: ["low", "medium", "high", "xhigh", "max"], custom: true };
+
+// 各 family 的尺寸预设。g2 在官方三档之外补齐常用比例，全部满足自定义尺寸规则
+const SIZE_PRESETS = {
+  g2: [
+    ["auto", "自动（由模型决定）"],
+    ["1024x1024", "1024 × 1024 · 1:1"], ["1536x1024", "1536 × 1024 · 3:2 横"], ["1024x1536", "1024 × 1536 · 2:3 竖"],
+    ["1280x720", "1280 × 720 · 16:9 小"], ["720x1280", "720 × 1280 · 9:16 小"],
+    ["1920x1088", "1920 × 1088 · 16:9"], ["1088x1920", "1088 × 1920 · 9:16"],
+    ["2048x1536", "2048 × 1536 · 4:3"], ["1536x2048", "1536 × 2048 · 3:4"],
+    ["2304x1536", "2304 × 1536 · 3:2 大"], ["1536x2304", "1536 × 2304 · 2:3 大"],
+    ["2048x2048", "2048 × 2048 · 1:1 大"],
+    ["2560x1440", "2560 × 1440 · 16:9 2K"], ["1440x2560", "1440 × 2560 · 9:16 2K"],
+    ["2688x1152", "2688 × 1152 · 21:9 超宽"],
+    ["3840x2160", "3840 × 2160 · 16:9 4K"], ["2160x3840", "2160 × 3840 · 9:16 4K"],
+    ["custom", "自定义…"],
+  ],
+  g1: [["auto", "自动"], ["1024x1024", "1024 × 1024 · 1:1"], ["1536x1024", "1536 × 1024 · 3:2 横"], ["1024x1536", "1024 × 1536 · 2:3 竖"]],
+  d3: [["1024x1024", "1024 × 1024 · 1:1"], ["1792x1024", "1792 × 1024 · 横"], ["1024x1792", "1024 × 1792 · 竖"]],
+  d2: [["1024x1024", "1024 × 1024"], ["512x512", "512 × 512"], ["256x256", "256 × 256"]],
+};
+const QUALITY_LABELS = { low: "低 · 快 · 便宜", medium: "中", high: "高", xhigh: "超高", max: "最高 · 最慢", standard: "标准", hd: "HD" };
+
+function currentModelEntry() {
+  return MODEL_CATALOG.find(m => m.id === settings.model) || Object.assign({}, CUSTOM_MODEL, { id: settings.model });
+}
+function validateCustomSize(w, h) {
+  if (!(w > 0 && h > 0)) return "请填写宽和高";
+  if (w % 16 || h % 16) return "宽高都必须是 16 的倍数";
+  if (Math.max(w, h) > 3840) return "单边最大 3840";
+  if (Math.max(w, h) / Math.min(w, h) > 3) return "宽高比不能超过 3:1";
+  const px = w * h;
+  if (px < 655360) return "总像素不能少于 655,360（例如 1024 × 640）";
+  if (px > 8294400) return "总像素不能超过 8,294,400（例如 3840 × 2160）";
+  return "";
+}
+function fillSelect(sel, pairs, keep) {
+  sel.innerHTML = "";
+  pairs.forEach(([v, t]) => { const o = el("option", null, t); o.value = v; sel.appendChild(o); });
+  if (pairs.some(([v]) => v === keep)) sel.value = keep; else sel.value = pairs[0] ? pairs[0][0] : "";
+  return sel.value;
+}
+function renderModelSel() {
+  const sel = $("modelSel"); sel.innerHTML = "";
+  let lastGroup = null, og = null;
+  MODEL_CATALOG.forEach(m => {
+    if (m.group !== lastGroup) { og = document.createElement("optgroup"); og.label = m.group; sel.appendChild(og); lastGroup = m.group; }
+    const o = el("option", null, `${m.label} — ${m.note}`); o.value = m.id; og.appendChild(o);
+  });
+  const ogc = document.createElement("optgroup"); ogc.label = "其他";
+  const oc = el("option", null, "自定义模型 ID…"); oc.value = "__custom__"; ogc.appendChild(oc); sel.appendChild(ogc);
+  const known = MODEL_CATALOG.some(m => m.id === settings.model);
+  sel.value = known ? settings.model : "__custom__";
+  $("customModelWrap").hidden = known;
+  if (!known) $("customModel").value = settings.model || "";
+}
+function applyModelCapabilities() {
+  const m = currentModelEntry();
+  settings.size = fillSelect($("size"), SIZE_PRESETS[m.family] || SIZE_PRESETS.g2, settings.size);
+  const qs = [["auto", "自动"]].concat(m.qualities.map(q => [q, QUALITY_LABELS[q] || q]));
+  settings.quality = fillSelect($("quality"), m.family === "d2" ? [["auto", "（该模型无质量参数）"]] : qs, settings.quality);
+  const legacy = m.family === "d3" || m.family === "d2";
+  $("bgField").hidden = legacy; $("fmtField").hidden = legacy;
+  $("customSizeWrap").hidden = settings.size !== "custom";
+  $("modelNote").textContent =
+    m.custom ? "按 GPT Image 2 系列的能力处理参数；服务端不支持的参数会报错，届时把对应项改回「自动」。" :
+    m.family === "g2" ? "支持任意自定义尺寸（16 的倍数），2.5 系列支持 超高/最高 质量档。部分通道的上游会按自己的默认值出图，以结果卡片上的真实尺寸为准。" :
+    m.family === "g1" ? "仅三档尺寸，质量 低/中/高。" :
+    m.family === "d3" ? "DALL·E 3 只做文生图，不支持参考图、透明背景和格式选择。" :
+    "DALL·E 2 只支持方形，无质量参数。";
+  saveSettings();
+}
+function resolveSize() {
+  if (settings.size === "custom") {
+    const w = parseInt(settings.customW, 10), h = parseInt(settings.customH, 10);
+    const err = validateCustomSize(w, h);
+    if (err) throw new Error("自定义尺寸不合法：" + err);
+    return `${w}x${h}`;
+  }
+  return settings.size;
+}
+function initModelUI() {
+  renderModelSel();
+  applyModelCapabilities();
+  $("modelSel").addEventListener("change", e => {
+    if (e.target.value === "__custom__") { $("customModelWrap").hidden = false; $("customModel").focus(); settings.model = $("customModel").value.trim() || settings.model; }
+    else { $("customModelWrap").hidden = true; settings.model = e.target.value; }
+    applyModelCapabilities();
+  });
+  $("customModel").addEventListener("input", e => { settings.model = e.target.value.trim(); saveSettings(); });
+  $("size").addEventListener("change", () => { $("customSizeWrap").hidden = settings.size !== "custom"; });
+  const chk = () => {
+    const w = parseInt(settings.customW, 10), h = parseInt(settings.customH, 10);
+    const err = (settings.customW || settings.customH) ? validateCustomSize(w, h) : "";
+    $("customSizeHint").textContent = err ? "✗ " + err : (w && h ? `✓ ${w} × ${h}，${(w * h / 1e6).toFixed(2)} MP` : "宽高均为 16 的倍数，单边 ≤ 3840，宽高比 ≤ 3:1，总像素 655,360 – 8,294,400。");
+    $("customSizeHint").style.color = err ? "var(--danger)" : "";
+  };
+  $("customW").addEventListener("input", chk); $("customH").addEventListener("input", chk); chk();
+}
+
+/* =====================================================================
    生成队列
    接口不支持 n>1（会静默忽略），所以多张 = 多个并行请求，每张一个卡片
    ===================================================================== */
@@ -885,14 +1019,23 @@ function generate() {
   const prompt = promptEl.value.trim();
   if (!settings.apiKey.trim()) { openSettings(true); setStatus("请先在「设置」里填写 API Key。", "err"); return; }
   if (!prompt) { setStatus("请先输入提示词。", "err"); promptEl.focus(); return; }
+  if (settings.mode === "edit" && currentModelEntry().family === "d3") { setStatus("DALL·E 3 不支持图生图，请换成 GPT Image 系列。", "err"); return; }
   if (settings.mode === "edit" && !refs.length) { setStatus("图生图需要至少一张参考图。", "err"); return; }
   try { endpoint(""); } catch (e) { setStatus(e.message, "err"); return; }
 
   const n = parseInt(settings.count, 10) || 1;
   const model = (settings.model || BRAND.defaultModel).trim();
+  if (!model) { setStatus("请先选择或填写模型。", "err"); return; }
+  const entry = currentModelEntry();
+  if (settings.mode === "edit" && entry.family === "d3") { setStatus("DALL·E 3 不支持图生图，请换成 GPT Image 系列。", "err"); return; }
+  let size;
+  try { size = resolveSize(); } catch (e) { setStatus(e.message, "err"); $("customW").focus(); return; }
+  const legacy = entry.family === "d3" || entry.family === "d2";
   const common = {
-    mode: settings.mode, prompt, model,
-    size: settings.size, quality: settings.quality, background: settings.background, format: settings.format,
+    mode: settings.mode, prompt, model, size,
+    quality: entry.family === "d2" ? "auto" : settings.quality,
+    background: legacy ? "" : settings.background,
+    format: legacy ? "png" : settings.format,
     refs: settings.mode === "edit" ? refs.map(r => ({ blob: r.blob, name: r.name })) : [],
   };
 
@@ -1249,17 +1392,18 @@ function init() {
 
   applyTheme();
   bindSetting("apiKey", "apiKey", "input");
+  ["size", "quality", "count", "background", "format"].forEach(k => bindSetting(k, k));
+  bindSetting("customW", "customW", "input"); bindSetting("customH", "customH", "input");
+  initModelUI();
   // 手动改了 Key 就不再声称"来自面板的某个密钥"
   $("apiKey").addEventListener("input", () => {
     if (settings.keyChoice && !panelKeys.some(k => k.key === settings.apiKey)) { settings.keyChoice = null; saveSettings(); }
     renderKeyBadge(); renderKeySelect();
   });
   renderKeyBadge();
-  bindSetting("model", "model", "input");
   bindSetting("baseUrl", "baseUrl", "input");
   bindSetting("concurrency", "concurrency");
   bindSetting("theme", "theme").addEventListener("change", applyTheme);
-  ["size", "quality", "count", "background", "format"].forEach(k => bindSetting(k, k));
   setMode(settings.mode === "edit" ? "edit" : "generate");
   renderChips();
   refreshHistCount();
